@@ -1,0 +1,13 @@
+dist/
+.cache/
+*.exe
+*.dll
+*.pdb
+*.zip
+*.bin
+*.user
+.vs/
+.env
+.env.*
+settings.json
+validation.txt

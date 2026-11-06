@@ -1,0 +1,21 @@
+{
+  "imirror": {
+    "url": "https://github.com/phh235/iphone-mirror-windows/releases/download/v0.1.0-preview.1/iMirror-v0.1.0-windows-x64.zip",
+    "sha256": "258e66df2c3202652b3e633bc46ded7fbb6a5556ea8b51bbe190e8f029a91533",
+    "file": "iMirror-v0.1.0-windows-x64.zip"
+  },
+  "plugins": [
+    {
+      "url": "https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-gst-plugins-bad-1.28.7-1-any.pkg.tar.zst",
+      "sha256": "c77246c58e071b7d65a916a5b87a0384e9f3770ee86e4fe21dc4563dda40fa83",
+      "file": "mingw-w64-ucrt-x86_64-gst-plugins-bad-1.28.7-1-any.pkg.tar.zst",
+      "plugin": "libgstwasapi.dll"
+    },
+    {
+      "url": "https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-gst-plugins-good-1.28.7-1-any.pkg.tar.zst",
+      "sha256": "9ee8a1b1041b94aab13514086c29f868e1030ab45f22eef56e9608a08573f841",
+      "file": "mingw-w64-ucrt-x86_64-gst-plugins-good-1.28.7-1-any.pkg.tar.zst",
+      "plugin": "libgstlevel.dll"
+    }
+  ]
+}
