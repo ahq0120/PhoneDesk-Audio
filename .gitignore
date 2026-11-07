@@ -22,3 +22,5 @@ self-test.txt
 smoke-test.txt
 preview.png
 reports/
+__pycache__/
+.pytest_cache/

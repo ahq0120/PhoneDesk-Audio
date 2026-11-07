@@ -11,7 +11,7 @@ def capabilities():
     return avdtp.MediaCodecCapabilities(
         media_type=avdtp.AVDTP_AUDIO_MEDIA_TYPE,
         media_codec_type=a2dp.A2DP_SBC_CODEC_TYPE,
-        media_codec_information=bytes.fromhex("21150235"),
+        media_codec_information=bytes.fromhex("33150235"),
     )
 
 
