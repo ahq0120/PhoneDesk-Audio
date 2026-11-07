@@ -66,6 +66,20 @@ public static class BluetoothDiagnostics {
   }finally{BluetoothFindDeviceClose(handle);}
   return result.ToArray();
  }
+ public static ulong[] PairedPhoneSources(){
+  var result=new System.Collections.Generic.List<ulong>();
+  var search=new Search{size=(uint)Marshal.SizeOf(typeof(Search)),authenticated=1};
+  var device=new Device{size=(uint)Marshal.SizeOf(typeof(Device))};IntPtr handle=BluetoothFindFirstDevice(ref search,ref device);
+  if(handle==IntPtr.Zero)return result.ToArray();
+  try{int seen=0;do{
+   if(device.authenticated!=0&&((device.deviceClass>>8)&31)==2){
+    uint count=128;var services=new Guid[count];uint status=BluetoothEnumerateInstalledServices(IntPtr.Zero,ref device,ref count,services);
+    if(status==0&&count<=services.Length){for(int i=0;i<count;i++)if(services[i]==new Guid("0000110a-0000-1000-8000-00805f9b34fb")&&!result.Contains(device.address))result.Add(device.address);}
+   }
+   device.size=(uint)Marshal.SizeOf(typeof(Device));
+  }while(++seen<256&&BluetoothFindNextDevice(handle,ref device));
+  }finally{BluetoothFindDeviceClose(handle);}return result.ToArray();
+ }
  [StructLayout(LayoutKind.Sequential)] struct RadioSearch {public uint size;}
  [DllImport("bthprops.cpl",SetLastError=true)] static extern IntPtr BluetoothFindFirstRadio(ref RadioSearch search,out IntPtr radio);
  [DllImport("bthprops.cpl",SetLastError=true)] [return:MarshalAs(UnmanagedType.Bool)] static extern bool BluetoothFindNextRadio(IntPtr find,out IntPtr radio);

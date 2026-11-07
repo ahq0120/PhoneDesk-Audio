@@ -33,7 +33,7 @@ public static class SwitchServiceProbe {
    while(records<32){
     Marshal.Copy(new byte[120],0,buffer,120);Marshal.WriteInt32(buffer,120);
     uint required=capacity;int rc=WSALookupServiceNextW(handle,0x200,ref required,buffer);
-    if(rc==0){records++;continue;}
+    if(rc==0){var answer=(Query)Marshal.PtrToStructure(buffer,typeof(Query));SdpSummary.LogBlob(answer.blob,buffer,capacity,log,key+" record="+records);records++;continue;}
     int error=WSAGetLastError();
     if(error==10014&&required>capacity&&required<=1048576){Marshal.FreeHGlobal(buffer);buffer=IntPtr.Zero;capacity=required;buffer=Marshal.AllocHGlobal((int)capacity);continue;}
     log.Write("sdp_result",key+" records="+records+" terminal_wsa="+error+" elapsed_ms="+timer.ElapsedMilliseconds);return records>0;
@@ -41,20 +41,18 @@ public static class SwitchServiceProbe {
    log.Write("sdp_result",key+" records="+records+" capped=1");return records>0;
   }finally{if(handle!=IntPtr.Zero)WSALookupServiceEnd(handle);if(buffer!=IntPtr.Zero)Marshal.FreeHGlobal(buffer);Marshal.FreeHGlobal(guid);}
  }
- static int Run(DailyLog log,bool enable){
+ static int Run(DailyLog log,bool compare){
   IntPtr data=Marshal.AllocHGlobal(512);
   try{int rc=WSAStartup(0x202,data);if(rc!=0){log.Write("winsock_init_failed","code="+rc);return 1;}
    try{
     var addresses=BluetoothDiagnostics.SwitchAddresses();log.Write("switch_targets","count="+addresses.Length);
     if(addresses.Length==0){Console.WriteLine("No remembered Nintendo Switch found. Keep the existing Windows pairing.");return 2;}
-    if(enable){
-     if(addresses.Length!=1){log.Write("enable_refused","reason=multiple_targets");Console.WriteLine("More than one Switch remembered; no settings changed.");return 5;}
-     if(!Lookup(addresses[0],0x110a,0,log)){log.Write("enable_refused","reason=no_live_source_record");return 6;}
-     bool enabled=BluetoothDiagnostics.EnableSwitchAudio(addresses[0],log);
-     Console.WriteLine("Return to PhoneDesk and refresh after a few seconds. Enable success is not audio-stream success.");
-     return enabled?0:7;
-    }
     for(int i=0;i<Math.Min(addresses.Length,2);i++)foreach(ushort service in new ushort[]{0x110a,0x110d,0x110c,0x110e})Lookup(addresses[i],service,i,log);
+    if(compare){
+     var phones=BluetoothDiagnostics.PairedPhoneSources();log.Write("phone_control_targets","count="+phones.Length);
+     if(phones.Length==1){foreach(ushort service in new ushort[]{0x110a,0x110d,0x110c,0x110e})Lookup(phones[0],service,100,log);}
+     else log.Write("phone_control_skipped","reason=requires_one_eligible_phone");
+    }
     log.Write("probe_completed");return 0;
    }finally{WSACleanup();}
   }finally{Marshal.FreeHGlobal(data);}
@@ -68,22 +66,17 @@ public static class SwitchServiceProbe {
  static int Execute(string[] args){
   var log=new DailyLog(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"logs","switch2-service-probe"));
   try{
-   BluetoothDiagnostics.SelfTest();
+   BluetoothDiagnostics.SelfTest();SdpSummary.SelfTest();
    if(Marshal.SizeOf(typeof(Query))!=120||Marshal.SizeOf(typeof(Address))!=30)throw new Exception("Invalid Winsock ABI");
    if(args.Length>0&&args[0]=="--self-test")return 0;
-   bool enable=args.Length==1&&args[0]=="--enable-audio";
-   if(args.Length>0&&!enable){Console.WriteLine("Unknown option.");return 1;}
-   if(enable){
-    Console.WriteLine("This will request Windows to ENABLE the paired Switch Audio Source service.");
-    Console.WriteLine("Windows may install its mapped driver. No pairing deletion or third-party download by this tool.");
-    Console.WriteLine("Only one remembered Switch and a successful live Audio Source query are allowed.");
-    Console.Write("Type ENABLE to continue, or press Enter to cancel: ");
-    if(Console.ReadLine()!="ENABLE")return 0;
-   }else Console.WriteLine("Switch 2 live SDP service probe. No pairing/driver/settings changes.");
+   if(args.Length>0&&args[0]=="--enable-audio"){Console.WriteLine("Enable experiment retired after Windows rejected the service mapping. Use read-only comparison.");return 1;}
+   bool compare=args.Length==1&&args[0]=="--compare-phone";
+   if(args.Length>0&&!compare){Console.WriteLine("Unknown option.");return 1;}
+   Console.WriteLine("Switch 2 read-only SDP comparison. No service enable or pairing changes.");
    Console.WriteLine("Keep Switch 2 awake on Bluetooth Audio. Close phone reception first.");
    Console.WriteLine("Querying may take up to 45 seconds. Addresses and names are not saved.");
-   log.Write("probe_started","version=1.1 mode="+(enable?"enable":"read_only")+"");
-   var task=Task.Run(()=>Run(log,enable));
+   log.Write("probe_started","version=1.2 mode="+(compare?"compare":"read_only")+"");
+   var task=Task.Run(()=>Run(log,compare));
    if(!task.Wait(45000)){log.Write("probe_timeout","limit_seconds=45");Console.WriteLine("Timed out. Send logs/switch2-service-probe/current.log");Environment.Exit(3);}
    Console.WriteLine("Done. Send logs/switch2-service-probe/current.log");return task.Result;
   }catch(Exception e){log.Error("probe",e);Console.WriteLine("Probe failed. Send logs/switch2-service-probe/current.log");return 1;}

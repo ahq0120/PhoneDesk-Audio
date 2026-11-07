@@ -1,47 +1,36 @@
-Switch 2 即時音訊服務查詢／手動啟用 v1.1
+﻿Switch 2 服務描述比對 v1.2（唯讀）
 
-目的
-先前接收器只確認 Windows 快取中沒有 Switch 2 已啟用的服務；不能據此判定主機實際不支援音訊。
-此工具使用 Windows Sockets Bluetooth SDP 遠端服務查詢（LUP_FLUSHCACHE），對已記住、名稱符合 Nintendo Switch 的主機查詢 Audio Source、A2DP、兩個 AVRCP 標準服務 UUID。
-預設 Run-Probe.cmd 不修改配對、驅動、登錄或音量；不錄音、不上傳。查詢會嘗試建立暫時的藍牙服務探索連線，因此不等同離線讀取。
+目前確定的結果
+即時 SDP 多次找到 Switch 2 的 Audio Source 與 A2DP 服務，但 Windows 的 BluetoothSetServiceState 回傳 1060，服務仍未啟用。
+這不等於 Switch 2 沒有音訊功能，也不代表能靠補裝某個名稱相同的服務修好。
+v1.1 的啟用實驗已停用，不要重複執行。v1.2 不呼叫服務啟用 API。
 
-已查到音訊來源服務，卻沒有出現在 PhoneDesk 清單時
-1. PhoneDesk 先停止接收手機；Switch 2 保持開機，停在「設定 → 藍牙音訊」。
-2. 雙擊 Enable-Switch-Audio.cmd，閱讀提示，輸入 ENABLE 後按 Enter。
-3. 工具只會在 Windows 記住單一 Nintendo Switch、且當次遠端 Audio Source 查詢確實有回覆時，要求 Windows 啟用該裝置的 Audio Source 服務。
-4. 這個動作使用 BluetoothSetServiceState，可能讓 Windows 安裝／掛接對應的系統驅動；不是純唯讀功能。不刪配對、不重設藍牙介面，也不由此工具下載第三方驅動。
-5. 完成後等約 10 秒，回 PhoneDesk 按「重新搜尋」，看是否出現 Switch 2。出現後才能選擇並開始接收。
-6. 無論成功與否，回傳 logs/switch2-service-probe/current.log。
-只啟用音訊來源（110A），不變更其他裝置或其他服務。沒有回覆、找不到主機或多台主機時不執行變更。
-若回傳存取遭拒，先回傳結果，不必立即改驅動或刪配對。逾時也不代表系統已還原，先等候並查看記錄，不要同時開多個工具。
-這是針對「服務存在但未啟用」假設的實驗，不保證 Windows 一定建立接收項目，也不代表音訊協商成功。
+使用
+1. PhoneDesk 停止接收，手機藍牙保持開啟並保留電腦配對。
+2. Switch 2 保持開機、靠近電腦，停在「設定 → 藍牙音訊」，保留現有配對。
+3. 雙擊 Run-Compare.cmd，等待完成，最多約 45 秒。
+4. 傳回 logs/switch2-service-probe/current.log。
+不用刪配對、重裝驅動或調整音訊緩衝。
+一次只開一個查詢程式。若只想查 Switch，Run-Probe.cmd 仍可使用。
 
-操作
-1. 完整解壓縮。
-2. PhoneDesk 停止接收手機，避免混淆測試。
-3. Switch 2 保持開機、靠近電腦，停在「設定 → 藍牙音訊」畫面，保留現有電腦配對。
-4. 雙擊 Run-Probe.cmd，等待完成，最長約 45 秒。
-5. 傳回 logs/switch2-service-probe/current.log。
-若沒查到，可讓 Switch 2 停在「配對裝置」搜尋畫面再跑一次；不需要先刪除配對。
+比對方式
+目標 0／1 是已記住的 Nintendo Switch；目標 100 是控制手機。
+手機控制組必須是單一已配對、Phone 類別且 Windows 快取有啟用 Audio Source 的來源；零個或多個時跳過並記錄原因。
+工具對標準 Audio Source、A2DP、AVRCP 服務作遠端查詢，略過快取。
+每筆服務描述只保存：記錄 handle 是否存在（數值遮蔽）、服務 UUID、協定數值、版本、標準功能旗標與解析結果。
+不保存原始 SDP、名稱、位址、音訊或其他文字欄位。這些查詢會暫時連接已配對裝置的 SDP 服務；不掃描陌生裝置，不改設定，不上傳。
 
-記錄
-只保存匿名目標編號、標準服務 UUID、回應數、錯誤碼與耗時，不保存裝置名稱、藍牙位址、原始 SDP 資料或音訊。
-這是獨立 log 目錄，不覆蓋 PhoneDesk 接收器的記錄。同日接續、跨日覆蓋，沿用 2 MiB 上限。
-沒有找到記住的主機、逾時、查詢失敗，都會顯示並留下記錄。
-
-界線
-此版本查的是服務探索，不是假裝已修好音訊。查到服務也不代表後續 AVDTP 音訊協商一定成功；查不到也可能是主機狀態、介面卡／Windows 查詢或連線問題。
-本機完成 x64 ABI 版型與編譯測試、無主機時的流程測試；開發電腦沒有藍牙硬體，尚未完成遠端 Switch 2 實測。
-v1.1 另驗證未輸入 ENABLE 會取消，不會執行變更。已加入單一程序限制，避免同時探測互相干擾。
-不要用本工具結果直接判定需購買硬體或重裝系統。
-
-建置
-在原始碼儲存庫執行 bluetooth/probe/Build.ps1。使用 Windows .NET Framework 編譯器，不下載套件。
+限制
+記錄比對可找出資料差異，不代表該差異就是 Windows 拒絕建立接收來源的原因。
+parse_ok=False 也可能是 Windows 回傳資料格式不符合單一 SDP 記錄，不能單憑此判斷 Switch 回覆損壞。
+目前只通過合成 SDP 的正常／缺欄位／損壞／隱私測試與無硬體流程。真實回覆解析和手機對照仍待目標電腦實測。
+log 同日接續、跨日覆蓋，上限 2 MiB。請傳本次執行後的記錄。
 
 研究來源
-Microsoft 即時 SDP 查詢：https://learn.microsoft.com/en-us/windows/win32/bluetooth/bluetooth-and-wsalookupservicebegin-for-service-discovery
-Microsoft WSAQUERYSET：https://learn.microsoft.com/en-us/windows/win32/bluetooth/bluetooth-and-wsaqueryset-for-service-inquiry
-Microsoft 啟用服務 API：https://learn.microsoft.com/en-us/windows/win32/api/bluetoothapis/nf-bluetoothapis-bluetoothsetservicestate
-AudioPlaybackConnection 只接受可串流裝置：https://learn.microsoft.com/en-us/uwp/api/windows.media.audio.audioplaybackconnection.trycreatefromid
-BlueZ Switch 2 實測問題：https://github.com/bluez/bluez/issues/2625
-BlueZ issue 是他人的 Linux 環境結果，不是本機 Windows 故障原因的證明。
+https://learn.microsoft.com/en-us/windows/win32/bluetooth/bluetooth-and-wsalookupservicebegin-for-service-discovery
+https://learn.microsoft.com/en-us/windows/win32/api/bluetoothapis/nf-bluetoothapis-bluetoothsdpenumattributes
+https://learn.microsoft.com/en-us/windows/win32/api/bluetoothapis/nf-bluetoothapis-bluetoothsetservicestate
+https://github.com/bluez/bluez/issues/2625
+BlueZ 是其他人的 Linux 實測，不能直接當成這台 Windows 的故障原因。
+
+原始碼建置：在儲存庫執行 bluetooth/probe/Build.ps1。沒有第三方套件下載。

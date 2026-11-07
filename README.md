@@ -1,6 +1,6 @@
 # PhoneDesk Audio
 
-**Switch 2 服務探索／啟用測試：** [下載 v1.1 工具](https://github.com/ahq0120/PhoneDesk-Audio/raw/refs/heads/switch2/downloads/Switch2-Service-Probe-v1.1.zip)。預設唯讀查詢；另附需要輸入 ENABLE 才執行的音訊來源服務啟用工具，可能觸發 Windows 掛接對應驅動。仍待實機驗證，不保證修復連線。[操作與限制](bluetooth/probe/README.txt)。
+**Switch 2 服務描述比對：** [下載 v1.2 唯讀工具](https://github.com/ahq0120/PhoneDesk-Audio/raw/refs/heads/switch2/downloads/Switch2-Service-Probe-v1.2.zip)。使用已配對手機作控制組，比較遠端 SDP 的標準數值欄位。v1.1 的服務啟用實驗被 Windows 以 1060 拒絕，已停用該入口；尚未修復 Switch 2 連線。[操作與限制](bluetooth/probe/README.txt)。
 
 **藍牙／Windows 音訊診斷工具：** [下載完整檢查腳本](https://github.com/ahq0120/PhoneDesk-Audio/raw/refs/heads/switch2/downloads/PhoneDesk-Audio-Diagnostics-v1.0.zip)，解壓後雙擊 `Run-Diagnostics.cmd`。[檢查範圍與使用方式](bluetooth/diagnostics/README.txt)。不修改設定、不錄音、不上傳；完成後自行分享產生的報告 ZIP。
 
