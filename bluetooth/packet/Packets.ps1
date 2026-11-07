@@ -61,9 +61,9 @@ try{
 $files=@(Get-ChildItem -LiteralPath $folder -Filter '*.etl')
 if(!$files.Count){Write-Host ('No ETL produced. Send ERROR.txt / commands.txt from '+$folder);exit 1}
 @('HCI/L2CAP protocol capture via Microsoft-Windows-BTH-BTHPORT.',
- 'Provider 8A1F9517-3A8C-4A9E-A018-4F17A200F277; keyword mask 0x6000000000000000; level 4.',
+ 'Provider 8A1F9517-3A8C-4A9E-A018-4F17A200F277; keyword mask 0xe000000000000000; level 4.',
  'This differs from the earlier WPP/service-only trace. Convert with Microsoft BTETLParse, not network etl2pcapng.',
- 'HCI RAW keyword 0x8000000000000000 is excluded. No SSP debug or Full Packet Logging setting is enabled.',
+ 'HCI RAW keyword 0x8000000000000000 is included to capture packet event 402. No SSP debug or Full Packet Logging setting is enabled.',
  'Default packet redaction/truncation may omit useful data; a nonempty ETL is not proof it contains the failed negotiation.',
  'Raw ETL is NOT anonymized and can contain addresses, device names, protocol traffic and other private data.',
  'Do not publish on GitHub. Disconnect unrelated phone/headphone audio and do not type passwords during capture.',

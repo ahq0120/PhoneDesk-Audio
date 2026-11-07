@@ -1,6 +1,6 @@
 # PhoneDesk Audio
 
-**Switch 2 協定封包追蹤：** [下載 HCI／L2CAP 收集腳本 v1.0](https://github.com/ahq0120/PhoneDesk-Audio/raw/refs/heads/switch2/downloads/Switch2-Packet-Capture-v1.0.zip)。右鍵 `Run-Packets.cmd` 以系統管理員執行，綠字出現後重現連線失敗，60 秒自動停止。[範圍、隱私與實測限制](bluetooth/packet/README.txt)。無需另裝 Wireshark／BTP；原始記錄不可公開上傳。
+**Switch 2 協定封包追蹤：** [下載 HCI／L2CAP 收集腳本 v1.1](https://github.com/ahq0120/PhoneDesk-Audio/raw/refs/heads/switch2/downloads/Switch2-Packet-Capture-v1.1.zip)。右鍵 `Run-Packets.cmd` 以系統管理員執行，綠字出現後重現連線失敗，60 秒自動停止。[範圍、隱私與實測限制](bluetooth/packet/README.txt)。無需另裝 Wireshark／BTP；原始記錄不可公開上傳。
 
 **Switch 2 底層追蹤：** [下載 ETW 工具 v1.1](https://github.com/ahq0120/PhoneDesk-Audio/raw/refs/heads/switch2/downloads/Switch2-ETW-Trace-v1.1.zip)。右鍵 `Run-Trace.cmd` 以系統管理員執行，開始後重現問題，60 秒自動停止。[使用方式與驗證限制](bluetooth/trace/README.txt)。ETL 未匿名，請勿公開上傳。
 
