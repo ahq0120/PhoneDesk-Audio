@@ -44,7 +44,19 @@ Nintendo 的 Switch 2 23.0.1 公告修正軟體啟動、暫停及關閉耗時問
 
 BlueZ issue #2625 的作者回報 Linux 可透過限制 `a2dp_sink` 與 `sbc` 建立 Switch 2 串流，但仍有音量問題。作者沒有隔離是哪個設定產生效果；AVRCP 缺少 ServiceRecordHandle 的因果關係也未驗證。
 
-這是有用的協商方向，不是可直接套進 Windows 的修復。朋友這台主機尚未取得可比對的 SDP 屬性／AVDTP 追蹤，不能斷言其缺少相同欄位。
+這是有用的協商方向，不是可直接套進 Windows 的修復。後續已取得本案的協定封包，觀測如下。
+
+## 後續協定證據與應用程式層限制
+
+- HCI 追蹤確認基本連線成功。來源要求 AVDTP PSM 0x0019，Windows 先回 pending，約 1.5 秒後回 L2CAP result 0x0002（PSM 不支援）。這次拒絕發生在 codec 協商以前。
+- 重新配對追蹤確認 Windows 主動建立基礎連線、完成配對並查詢 SDP；不能把 Windows 顯示已連線等同音訊已連線。該次第二段音訊要求在追蹤結束前只有 pending，不能推定後續一定失敗。
+- Windows 查詢完整 0x0000–0xffff 屬性範圍，Switch 2 回覆三筆服務記錄，包含 Audio Source 110A，均未包含 ServiceRecordHandle 0x0000。回覆完整且無 continuation state，不是解碼器只取到部分資料。
+- 藍牙 SDP 規格要求每筆記錄包含 0x0000 與 0x0001。缺少 0x0000 是已觀測異常，但「因此被 Windows 忽略」仍是待驗證的因果假設。
+- Microsoft 的 WSASetService 與 SDP SUBMIT_RECORD 是發布本機服務，不是覆寫遠端 Switch 的服務資料；BluetoothSetLocalServiceInfo 也是本機 profile driver 的安裝介面。未找到受支援的應用程式 API 可補寫遠端記錄並強迫 BthEnum 建立其音訊子裝置。
+
+沒有把編輯登錄快取、偽造本機 SDP 或強制綁定驅動當作已驗證的修復，也沒有在目標電腦套用這些操作。
+
+替代路線的[獨立 Bumble listener 離線驗證](../bluetooth/experimental/bumble/README.md)已通過虛擬 AVDTP 協商；不是實體 Switch 2 收音版本。Windows USB 路線需專用 WinUSB 控制器，目前使用者的 USB 藍牙棒仍要連其他裝置，因此未更換其驅動。
 
 ## 下一個有效的調查點
 
@@ -64,3 +76,6 @@ BlueZ issue #2625 的作者回報 Linux 可透過限制 `a2dp_sink` 與 `sbc` �
 - [Microsoft：Bluetooth driver stack 的裝置與 profile 建立](https://learn.microsoft.com/en-us/windows-hardware/drivers/bluetooth/using-the-bluetooth-driver-stack)
 - [Microsoft：Bluetooth Winsock 支援協定](https://learn.microsoft.com/en-us/windows/win32/bluetooth/bluetooth-and-socket)
 - [BlueZ：Switch 2 A2DP sink 實測](https://github.com/bluez/bluez/issues/2625)
+- [Bluetooth SIG：SDP Universal attribute definitions](https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Core-54/out/en/host/service-discovery-protocol--sdp--specification.html)
+- [Microsoft：WSASetService 發布本機服務](https://learn.microsoft.com/en-us/windows/win32/bluetooth/bluetooth-and-wsasetservice)
+- [Microsoft：BluetoothSetLocalServiceInfo](https://learn.microsoft.com/en-us/windows/win32/api/bluetoothapis/nf-bluetoothapis-bluetoothsetlocalserviceinfo)
