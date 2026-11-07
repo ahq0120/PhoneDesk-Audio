@@ -66,4 +66,35 @@ public static class BluetoothDiagnostics {
   }finally{BluetoothFindDeviceClose(handle);}
   return result.ToArray();
  }
+ [StructLayout(LayoutKind.Sequential)] struct RadioSearch {public uint size;}
+ [DllImport("bthprops.cpl",SetLastError=true)] static extern IntPtr BluetoothFindFirstRadio(ref RadioSearch search,out IntPtr radio);
+ [DllImport("bthprops.cpl",SetLastError=true)] [return:MarshalAs(UnmanagedType.Bool)] static extern bool BluetoothFindNextRadio(IntPtr find,out IntPtr radio);
+ [DllImport("bthprops.cpl")] [return:MarshalAs(UnmanagedType.Bool)] static extern bool BluetoothFindRadioClose(IntPtr find);
+ [DllImport("kernel32.dll")] [return:MarshalAs(UnmanagedType.Bool)] static extern bool CloseHandle(IntPtr handle);
+ [DllImport("bthprops.cpl")] static extern uint BluetoothGetDeviceInfo(IntPtr radio,ref Device device);
+ [DllImport("bthprops.cpl")] static extern uint BluetoothSetServiceState(IntPtr radio,ref Device device,ref Guid service,uint flags);
+ public static bool EnableSwitchAudio(ulong address,DailyLog log){
+  var search=new RadioSearch{size=4};IntPtr radio;
+  IntPtr find=BluetoothFindFirstRadio(ref search,out radio);
+  if(find==IntPtr.Zero){log.Write("enable_no_radio","win32="+Marshal.GetLastWin32Error());return false;}
+  try{do{
+   try{
+    var device=new Device{size=(uint)Marshal.SizeOf(typeof(Device)),address=address};
+    uint read=BluetoothGetDeviceInfo(radio,ref device);
+    if(read!=0||device.authenticated==0||(device.name??"").IndexOf("Nintendo Switch",StringComparison.OrdinalIgnoreCase)<0)continue;
+    var service=new Guid("0000110a-0000-1000-8000-00805f9b34fb");
+    log.Write("enable_audio_source_requested");
+    uint result=BluetoothSetServiceState(radio,ref device,ref service,1);
+    log.Write("enable_audio_source_result","win32="+result+" hex=0x"+result.ToString("X8"));
+    uint count=128;var services=new Guid[count];uint status=BluetoothEnumerateInstalledServices(radio,ref device,ref count,services);
+    bool enabled=false;
+    if(status==0&&count<=services.Length){for(int i=0;i<count;i++)enabled|=services[i]==service;}
+    log.Write("enable_audio_source_check","enumeration_code="+status+" enabled="+enabled);
+    Console.WriteLine("Windows result: "+result+"; cached enabled state: "+enabled);
+    return enabled;
+   }finally{CloseHandle(radio);}
+  }while(BluetoothFindNextRadio(find,out radio));
+  }finally{BluetoothFindRadioClose(find);}
+  log.Write("enable_no_matching_paired_device");return false;
+ }
 }
