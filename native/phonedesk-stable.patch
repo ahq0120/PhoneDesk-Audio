@@ -1,0 +1,458 @@
+--- a/vendor/uxplay/lib/mdnsd/mdnsd.c
++++ b/vendor/uxplay/lib/mdnsd/mdnsd.c
+@@ -368,6 +368,22 @@
+     }
+     
+     if (dwRetVal == NO_ERROR) {
++        /* PhoneDesk can select its LAN without changing VPN routes. Accept
++         * an override only when it belongs to a currently active adapter. */
++        const char *requested = getenv("PHONEDESK_INTERFACE_IP");
++        struct in_addr requested_addr;
++        if (requested && inet_pton(AF_INET, requested, &requested_addr) == 1) {
++            for (PIP_ADAPTER_ADDRESSES adapter = pAddresses; adapter; adapter = adapter->Next) {
++                if (adapter->OperStatus != IfOperStatusUp) continue;
++                for (PIP_ADAPTER_UNICAST_ADDRESS item = adapter->FirstUnicastAddress; item; item = item->Next) {
++                    if (item->Address.lpSockaddr->sa_family == AF_INET &&
++                        ((struct sockaddr_in *)item->Address.lpSockaddr)->sin_addr.s_addr == requested_addr.s_addr) {
++                        free(pAddresses);
++                        return requested_addr.s_addr;
++                    }
++                }
++            }
++        }
+         PIP_ADAPTER_ADDRESSES pCurr = pAddresses;
+         while (pCurr) {
+             // Precise target filters to bypass the Hyper-V virtual adapter loopback capture
+--- a/vendor/uxplay/renderers/audio_renderer.c
++++ b/vendor/uxplay/renderers/audio_renderer.c
+@@ -21,6 +21,7 @@
+  */
+ 
+ #include <math.h>
++#include <stdio.h>
+ #include <gst/gst.h>
+ #include <gst/app/gstappsrc.h>
+ #include "audio_renderer.h"
+@@ -28,6 +29,13 @@
+ 
+ #define NFORMATS 2     /* set to 4 to enable AAC_LD and PCM:  allowed, but  never seen in real-world use */
+ 
++#define PHONEDESK_SOURCE "appsrc name=audio_source max-bytes=0 max-buffers=60 max-time=600000000 block=false leaky-type=downstream ! "
++#define PHONEDESK_PCM_QUEUE "queue name=audio_pcm max-size-time=250000000 max-size-buffers=24 max-size-bytes=0 leaky=downstream ! "
++static GMutex audio_mutex;
++static gboolean next_discont = FALSE;
++static gint pcm_overruns = 0;
++static gint64 last_health = 0;
++static void pcm_overrun(GstElement *queue, gpointer unused) { g_atomic_int_inc(&pcm_overruns); }
+ static GstClockTime gst_audio_pipeline_base_time = GST_CLOCK_TIME_NONE;
+ static logger_t *logger = NULL;
+ const char * format[NFORMATS];
+@@ -46,6 +54,8 @@
+     GstElement *appsrc; 
+     GstElement *pipeline;
+     GstElement *volume;
++    GstElement *pcm_queue;
++    GstElement *output_sink;
+     GstBus *bus;
+     unsigned char ct;
+ } audio_renderer_t ;
+@@ -144,8 +154,7 @@
+     for (int i = 0; i < NFORMATS ; i++) {
+         renderer_type[i] = (audio_renderer_t *)  calloc(1,sizeof(audio_renderer_t));
+         g_assert(renderer_type[i]);
+-        GString *launch = g_string_new("appsrc name=audio_source ! ");
+-        g_string_append(launch, "queue ! ");
++        GString *launch = g_string_new(PHONEDESK_SOURCE);
+         switch (i) {
+         case 0:    /* AAC-ELD */
+         case 2:    /* AAC-LC */
+@@ -161,12 +170,14 @@
+         }
+         g_string_append (launch, "audioconvert ! ");
+         g_string_append (launch, "audioresample quality=10 ! ");    /* maximum resampling quality for 44.1kHz -> 48kHz audio */
++        g_string_append (launch, PHONEDESK_PCM_QUEUE);
+         g_string_append (launch, "volume name=volume ! ");
+ 
+         if (!audio_rtp) {
+             /* Normal path: local audio output */
+             g_string_append (launch, "level ! ");
+             g_string_append (launch, audiosink);
++            g_string_append (launch, " name=phonedesk_audio_sink");
+             switch(i) {
+             case 1:  /*ALAC*/
+                 if (*audio_sync) {
+@@ -205,6 +216,9 @@
+         renderer_type[i]->bus = gst_element_get_bus(renderer_type[i]->pipeline);
+         renderer_type[i]->appsrc = gst_bin_get_by_name (GST_BIN (renderer_type[i]->pipeline), "audio_source");
+         renderer_type[i]->volume = gst_bin_get_by_name (GST_BIN (renderer_type[i]->pipeline), "volume");
++        renderer_type[i]->pcm_queue = gst_bin_get_by_name(GST_BIN(renderer_type[i]->pipeline), "audio_pcm");
++        g_signal_connect(renderer_type[i]->pcm_queue, "overrun", G_CALLBACK(pcm_overrun), NULL);
++        renderer_type[i]->output_sink=gst_bin_get_by_name(GST_BIN(renderer_type[i]->pipeline),"phonedesk_audio_sink");
+         switch (i) {
+         case 0:
+             caps =  gst_caps_from_string(aac_eld_caps);
+@@ -239,11 +253,13 @@
+ }
+ 
+ void audio_renderer_stop() {
++    g_mutex_lock(&audio_mutex);
+     if (renderer) {
+         gst_app_src_end_of_stream(GST_APP_SRC(renderer->appsrc));
+         gst_element_set_state (renderer->pipeline, GST_STATE_NULL);
+         renderer = NULL;
+     }
++    g_mutex_unlock(&audio_mutex);
+ }
+ 
+ static void get_renderer_type(unsigned char *ct, int *id) {
+@@ -283,6 +299,7 @@
+ }
+ 
+ void  audio_renderer_start(unsigned char *ct) {
++    g_mutex_lock(&audio_mutex);
+     int id = -1;
+     get_renderer_type(ct, &id);
+     if (id >= 0 && renderer) {
+@@ -291,96 +308,109 @@
+             gst_element_set_state (renderer->pipeline, GST_STATE_NULL);
+             logger_log(logger, LOGGER_INFO, "changed audio connection, format %s", format[id]);
+             renderer = renderer_type[id];
++            g_object_set(renderer->appsrc,"do-timestamp",!sync,NULL);
+             gst_element_set_state (renderer->pipeline, GST_STATE_PLAYING);
+             gst_audio_pipeline_base_time = gst_element_get_base_time(renderer->appsrc);
+         }
+     } else if (id >= 0) {
+         logger_log(logger, LOGGER_INFO, "start audio connection, format %s", format[id]);
+         renderer = renderer_type[id];
++        g_object_set(renderer->appsrc,"do-timestamp",!sync,NULL);
+         gst_element_set_state (renderer->pipeline, GST_STATE_PLAYING);
+         gst_audio_pipeline_base_time = gst_element_get_base_time(renderer->appsrc);
+     } else {
+         logger_log(logger, LOGGER_ERR, "unknown audio compression type ct = %d", *ct);
+     }
++    next_discont=TRUE;
++    g_mutex_unlock(&audio_mutex);
+ }
+ 
+ void audio_renderer_render_buffer(unsigned char* data, int *data_len, unsigned short *seqnum, uint64_t *ntp_time) {
+-    GstBuffer *buffer = NULL;
+-
+-    if (!render_audio) return;    /* do nothing unless render_audio == TRUE */
+-
+-    GstClockTime pts = (GstClockTime) *ntp_time ;    /* now in nsecs */
+-    //GstClockTimeDiff latency = GST_CLOCK_DIFF(gst_element_get_current_clock_time (renderer->appsrc), pts);
++    g_mutex_lock(&audio_mutex);
++    if (!render_audio || !renderer || !data || !data_len || *data_len <= 0 || !ntp_time) goto done;
++    GstClockTime pts = (GstClockTime)*ntp_time;
+     if (sync) {
+-        if (pts >= gst_audio_pipeline_base_time) {
+-            pts -= gst_audio_pipeline_base_time;
+-        } else {
+-            logger_log(logger, LOGGER_ERR, "*** invalid ntp_time < gst_audio_pipeline_base_time\n%8.6f ntp_time\n%8.6f base_time",
+-                       ((double) *ntp_time) / SECOND_IN_NSECS, ((double) gst_audio_pipeline_base_time) / SECOND_IN_NSECS);
+-            return;
+-        }
+-    }
+-    if (data_len == 0 || renderer == NULL) return;
+-
+-    /* all audio received seems to be either ct = 8 (AAC_ELD 44100/2 spf 460 ) AirPlay Mirror protocol *
+-     * or ct = 2 (ALAC 44100/16/2 spf 352) AirPlay protocol.                                           *
+-     * first byte data[0] of ALAC frame is 0x20,                                                       *
+-     * first byte of AAC_ELD is 0x8c, 0x8d or 0x8e: 0x100011(00,01,10) in modern devices               *
+-     *                   but is 0x80, 0x81 or 0x82: 0x100000(00,01,10) in ios9, ios10 devices          *
+-     * first byte of AAC_LC should be 0xff (ADTS) (but has never been  seen).                          */
+-    
+-    buffer = gst_buffer_new_allocate(NULL, *data_len, NULL);
+-    g_assert(buffer != NULL);
+-    //g_print("audio latency %8.6f\n", (double) latency / SECOND_IN_NSECS);
+-    if (sync) {
+-        GST_BUFFER_PTS(buffer) = pts;
+-    }
+-    gst_buffer_fill(buffer, 0, data, *data_len);
+-    bool valid = false;
+-    switch (renderer->ct){
+-    case 8: /*AAC-ELD*/
+-        switch (data[0]){
+-        case 0x8c:
+-        case 0x8d:
+-        case 0x8e:
+-        case 0x80:
+-        case 0x81:
+-        case 0x82:
+-            valid = true;
+-            break;          
+-        default:
+-            valid = false;
+-            break;
+-        }
+-        break;
+-    case 2: /*ALAC*/
+-        valid = (data[0] == 0x20);
+-        break;
+-    case 4:  /*AAC_LC */
+-        valid = (data[0] == 0xff );
+- 	break;
+-    default:
+-        valid = true;
+-        break;
+-    }
+-    if (valid) {
+-        gst_app_src_push_buffer(GST_APP_SRC(renderer->appsrc), buffer);
+-    } else {
+-        logger_log(logger, LOGGER_ERR, "*** ERROR invalid  audio frame (compression_type %d) skipped ", renderer->ct);
+-        logger_log(logger, LOGGER_ERR, "***       first byte of invalid frame was  0x%2.2x ", (unsigned int) data[0]);
+-    }
++        if (pts < gst_audio_pipeline_base_time) goto done;
++        pts -= gst_audio_pipeline_base_time;
++    }
++    bool valid = true;
++    switch(renderer->ct) {
++    case 8: valid = data[0]==0x8c || data[0]==0x8d || data[0]==0x8e || data[0]==0x80 || data[0]==0x81 || data[0]==0x82; break;
++    case 2: valid = data[0]==0x20; break;
++    case 4: valid = data[0]==0xff; break;
++    default: break;
++    }
++    if (!valid) { next_discont=TRUE; goto done; }
++    GstBuffer *buffer = gst_buffer_new_allocate(NULL, *data_len, NULL);
++    if (!buffer) goto done;
++    if (sync) GST_BUFFER_PTS(buffer)=pts;
++    unsigned samples=renderer->ct==2?352:renderer->ct==8?480:renderer->ct==4?1024:(unsigned)*data_len/4;
++    GST_BUFFER_DURATION(buffer)=gst_util_uint64_scale(samples,GST_SECOND,44100);
++    if(next_discont){GST_BUFFER_FLAG_SET(buffer,GST_BUFFER_FLAG_DISCONT);next_discont=FALSE;}
++    gst_buffer_fill(buffer,0,data,*data_len);
++    GstFlowReturn result=gst_app_src_push_buffer(GST_APP_SRC(renderer->appsrc),buffer);
++    if(result!=GST_FLOW_OK && result!=GST_FLOW_FLUSHING) {
++        fprintf(stderr,"PhoneDesk audio: push_flow=%d\n",result);
++    }
++    gint64 now=g_get_monotonic_time();
++    if(now-last_health >= 5*G_USEC_PER_SEC) {
++        guint64 queued=0,dropped=0;
++        g_object_get(renderer->appsrc,"current-level-time",&queued,"dropped",&dropped,NULL);
++        if(renderer->pcm_queue)g_object_get(renderer->pcm_queue,"current-level-time",&queued,NULL);
++        guint64 input=0;g_object_get(renderer->appsrc,"current-level-time",&input,NULL);
++        fprintf(stderr,"PhoneDesk audio: codec=%u sync=%d input_ms=%llu input_dropped=%llu pcm_ms=%llu pcm_overruns=%d\n",renderer->ct,sync,(unsigned long long)(input/GST_MSECOND),(unsigned long long)dropped,(unsigned long long)(queued/GST_MSECOND),g_atomic_int_get(&pcm_overruns));
++        last_health=now;
++    }
++done:
++    g_mutex_unlock(&audio_mutex);
+ }
+ 
+ void audio_renderer_set_volume(double volume) {
+-    if (!renderer) {
+-       return;
+-    }
+-    volume = (volume > 10.0) ? 10.0 : volume;
+-    volume = (volume < 0.0) ? 0.0 : volume;
+-    g_object_set(renderer->volume, "volume", volume, NULL);
++    g_mutex_lock(&audio_mutex);
++    if (renderer && renderer->volume) {
++        volume = volume > 10.0 ? 10.0 : volume < 0.0 ? 0.0 : volume;
++        g_object_set(renderer->volume,"volume",volume,NULL);
++    }
++    g_mutex_unlock(&audio_mutex);
+ }
+ 
+ void audio_renderer_flush() {
++    g_mutex_lock(&audio_mutex);
++    if(renderer && renderer->pipeline) {
++        /* READY clears appsrc, decoder, queue and audio-device ring buffers.
++         * Returning to PLAYING also restarts the running-time epoch. */
++        gst_element_set_state(renderer->pipeline,GST_STATE_READY);
++        gst_element_set_state(renderer->pipeline,GST_STATE_PLAYING);
++        gst_audio_pipeline_base_time=gst_element_get_base_time(renderer->appsrc);
++        next_discont=TRUE;
++        fprintf(stderr,"PhoneDesk audio: flush cleared queued audio\n");
++    }
++    g_mutex_unlock(&audio_mutex);
++}
++
++static void set_pipeline_sync(audio_renderer_t *target, gboolean enabled) {
++    g_object_set(target->appsrc,"do-timestamp",!enabled,
++        "max-buffers",(guint64)(enabled?600:60),
++        "max-time",(guint64)(enabled?3*GST_SECOND:600*GST_MSECOND),NULL);
++    g_object_set(target->pcm_queue,"max-size-buffers",(guint)(enabled?400:24),
++        "max-size-time",(guint64)(enabled?3*GST_SECOND:250*GST_MSECOND),NULL);
++    if(target->output_sink)g_object_set(target->output_sink,"sync",enabled,NULL);
++}
++
++void phonedesk_audio_set_sync(int enabled) {
++    g_mutex_lock(&audio_mutex);
++    async=vsync=enabled!=0;sync=enabled!=0;
++    if(renderer)gst_element_set_state(renderer->pipeline,GST_STATE_READY);
++    for(int i=0;i<NFORMATS;i++)if(renderer_type[i])set_pipeline_sync(renderer_type[i],enabled!=0);
++    /* The synthetic test renderer is independent of the format table. */
++    if(renderer){
++        set_pipeline_sync(renderer,enabled!=0);
++        gst_element_set_state(renderer->pipeline,GST_STATE_PLAYING);
++        gst_audio_pipeline_base_time=gst_element_get_base_time(renderer->appsrc);
++    }
++    next_discont=TRUE;
++    fprintf(stderr,"PhoneDesk audio: sync_mode=%d\n",enabled!=0);
++    g_mutex_unlock(&audio_mutex);
+ }
+ 
+ void audio_renderer_destroy() {
+@@ -388,6 +418,10 @@
+     for (int i = 0; i < NFORMATS ; i++ ) {
+         gst_object_unref (renderer_type[i]->bus);
+         renderer_type[i]->bus = NULL;
++        if(renderer_type[i]->output_sink)gst_object_unref(renderer_type[i]->output_sink);
++        renderer_type[i]->output_sink=NULL;
++        gst_object_unref(renderer_type[i]->pcm_queue);
++        renderer_type[i]->pcm_queue=NULL;
+         gst_object_unref (renderer_type[i]->volume);
+         renderer_type[i]->volume = NULL;
+         gst_object_unref (renderer_type[i]->appsrc);
+@@ -407,7 +441,7 @@
+         logger_log(logger, LOGGER_INFO, "GStreamer error (audio): %s %s", GST_MESSAGE_SRC_NAME(message),err->message);
+         g_error_free(err);
+         g_free(debug);
+-        if (renderer->appsrc) {
++        if (renderer && renderer->appsrc) {
+             gst_app_src_end_of_stream (GST_APP_SRC(renderer->appsrc));
+         }
+         gst_bus_set_flushing(bus, TRUE);
+@@ -435,3 +469,61 @@
+     return (unsigned int) gst_bus_add_watch(renderer_type[id]->bus,(GstBusFunc)
+                                             gstreamer_audio_pipeline_bus_callback, (gpointer) loop); 
+ }
++
++/* Deterministic burst/flush regression test using silence and a slow fake sink.
++ * Shares the production queue settings and invokes the actual flush routine. */
++static void test_handoff(GstElement *sink,GstBuffer *buffer,GstPad *pad,gpointer value){g_atomic_int_inc((gint*)value);}
++int phonedesk_audio_self_test(void) {
++    gst_init(NULL,NULL);
++    GError *error=NULL;
++    GstElement *pipeline=gst_parse_launch(PHONEDESK_SOURCE
++        "audio/x-raw,format=S16LE,layout=interleaved,channels=2,rate=44100 ! "
++        PHONEDESK_PCM_QUEUE "identity sleep-time=50000 ! fakesink name=phonedesk_audio_sink signal-handoffs=true sync=false",&error);
++    if(error || !pipeline) return 10;
++    audio_renderer_t test={0};test.pipeline=pipeline;
++    test.appsrc=gst_bin_get_by_name(GST_BIN(pipeline),"audio_source");
++    test.pcm_queue=gst_bin_get_by_name(GST_BIN(pipeline),"audio_pcm");test.ct=1;
++    test.output_sink=gst_bin_get_by_name(GST_BIN(pipeline),"phonedesk_audio_sink");
++    gint handoffs=0;g_signal_connect(test.output_sink,"handoff",G_CALLBACK(test_handoff),&handoffs);
++    g_object_set(test.appsrc,"format",GST_FORMAT_TIME,"is-live",TRUE,"do-timestamp",TRUE,NULL);
++    renderer=&test;render_audio=TRUE;sync=FALSE;
++    gst_element_set_state(pipeline,GST_STATE_PLAYING);
++    unsigned char silence[1764]={0};int length=sizeof(silence);unsigned short seq=0;uint64_t now=0;
++    for(int i=0;i<500;i++)audio_renderer_render_buffer(silence,&length,&seq,&now);
++    g_usleep(50000);
++    guint64 count=0,dropped=0;guint pcm_count=0;
++    g_object_get(test.appsrc,"current-level-buffers",&count,"dropped",&dropped,NULL);
++    g_object_get(test.pcm_queue,"current-level-buffers",&pcm_count,NULL);
++    int code=(count<=60 && pcm_count<=24 && dropped>0)?0:11;
++    fprintf(stderr,"PhoneDesk audio: test burst input_buffers=%llu dropped=%llu pcm_buffers=%u\n",(unsigned long long)count,(unsigned long long)dropped,pcm_count);
++    audio_renderer_flush();
++    g_object_get(test.appsrc,"current-level-buffers",&count,NULL);
++    g_object_get(test.pcm_queue,"current-level-buffers",&pcm_count,NULL);
++    if(count!=0 || pcm_count!=0) code=12;
++    audio_renderer_render_buffer(silence,&length,&seq,&now);
++    g_usleep(100000);
++    GstBus *bus=gst_element_get_bus(pipeline);
++    GstMessage *message=gst_bus_pop_filtered(bus,GST_MESSAGE_ERROR);
++    if(message){code=13;gst_message_unref(message);}
++    gst_object_unref(bus);
++    phonedesk_audio_set_sync(1);
++    GstClock *clock=gst_element_get_clock(pipeline);
++    if(!clock)code=14;
++    if(clock){
++        uint64_t scheduled=gst_clock_get_time(clock)+300*GST_MSECOND;
++        gst_object_unref(clock);
++        int before=g_atomic_int_get(&handoffs);
++        audio_renderer_render_buffer(silence,&length,&seq,&scheduled);
++        g_usleep(100000);
++        if(g_atomic_int_get(&handoffs)!=before)code=15;
++        g_usleep(350000);
++        if(g_atomic_int_get(&handoffs)<=before)code=16;
++    }
++    phonedesk_audio_set_sync(0);
++    guint64 max_buffers=0;g_object_get(test.appsrc,"max-buffers",&max_buffers,NULL);
++    if(max_buffers!=60)code=17;
++    gst_element_set_state(pipeline,GST_STATE_NULL);renderer=NULL;render_audio=FALSE;
++    gst_object_unref(test.appsrc);gst_object_unref(test.pcm_queue);gst_object_unref(test.output_sink);gst_object_unref(pipeline);
++    fprintf(stderr,"PhoneDesk audio: self_test=%s code=%d\n",code?"FAIL":"PASS",code);
++    return code;
++}
+--- a/vendor/uxplay/renderers/audio_renderer.h
++++ b/vendor/uxplay/renderers/audio_renderer.h
+@@ -32,6 +32,8 @@
+ #include <stdbool.h>
+ #include "../lib/logger.h"
+ 
++void phonedesk_audio_set_sync(int enabled);
++int phonedesk_audio_self_test(void);
+ bool gstreamer_init();
+ void audio_renderer_init(logger_t *logger, const char* audiosink, const bool *audio_sync, const bool *video_sync, const char *artp_pipeline);
+ void audio_renderer_start(unsigned char* compression_type);
+--- a/vendor/uxplay/uxplay.cpp
++++ b/vendor/uxplay/uxplay.cpp
+@@ -701,6 +701,15 @@
+ 
+ #define MAX_VIDEO_RENDERERS 3
+ #define MAX_AUDIO_RENDERERS 2
++#ifdef _WIN32
++static int phonedesk_last_sync=-1;
++static gboolean phonedesk_sync_callback(gpointer event) {
++    int enabled=WaitForSingleObject((HANDLE)event,0)==WAIT_OBJECT_0;
++    if(enabled!=phonedesk_last_sync){phonedesk_audio_set_sync(enabled);phonedesk_last_sync=enabled;}
++    return TRUE;
++}
++#endif
++
+ static void main_loop()  {
+     guint gst_video_bus_watch_id[MAX_VIDEO_RENDERERS] = { 0 };
+     guint gst_audio_bus_watch_id[MAX_AUDIO_RENDERERS] = { 0 };
+@@ -756,6 +765,13 @@
+ 
+ #ifdef _WIN32
+     gmainloop = loop;
++    HANDLE phonedesk_sync_event=NULL;
++    guint phonedesk_sync_watch=0;
++    const char *sync_event_name=getenv("PHONEDESK_AUDIO_SYNC_EVENT");
++    if(sync_event_name){
++        phonedesk_sync_event=OpenEventA(SYNCHRONIZE,FALSE,sync_event_name);
++        if(phonedesk_sync_event){phonedesk_last_sync=-1;phonedesk_sync_callback(phonedesk_sync_event);phonedesk_sync_watch=g_timeout_add(50,phonedesk_sync_callback,phonedesk_sync_event);}
++    }
+     HANDLE imirror_stop_event = NULL;
+     guint imirror_stop_watch = 0;
+     const char *imirror_event_name = getenv("IMIRROR_STOP_EVENT");
+@@ -776,6 +792,8 @@
+     g_main_loop_run(loop);
+ 
+ #ifdef _WIN32
++    if(phonedesk_sync_watch)g_source_remove(phonedesk_sync_watch);
++    if(phonedesk_sync_event)CloseHandle(phonedesk_sync_event);
+     if (imirror_stop_watch) g_source_remove(imirror_stop_watch);
+     if (imirror_stop_event) CloseHandle(imirror_stop_event);
+     gmainloop = NULL;
+@@ -2996,6 +3014,7 @@
+ #else
+ int main (int argc, char *argv[]) {
+ #endif
++    if(argc==2 && strcmp(argv[1],"--phonedesk-audio-self-test")==0) return phonedesk_audio_self_test();
+     std::vector<char> server_hw_addr;
+     std::string config_file = "";
+ 
+@@ -3278,17 +3297,21 @@
+         append_hostname(server_name);
+     }
+ 
++    fprintf(stderr, "PhoneDesk: initializing media plugins\n");
+     if (!gstreamer_init()) {
+         LOGE ("stopping");
+         exit (1);
+     }
+ 
++    fprintf(stderr, "PhoneDesk: media plugins ready\n");
+     render_logger = logger_init();
+     logger_set_callback(render_logger, log_callback, NULL);
+     logger_set_level(render_logger, log_level);
+ 
+     if (use_audio) {
++        fprintf(stderr, "PhoneDesk: initializing audio output\n");
+         audio_renderer_init(render_logger, audiosink.c_str(), &audio_sync, &video_sync, audio_rtp_pipeline.c_str());
++        fprintf(stderr, "PhoneDesk: audio output ready\n");
+     } else {
+         LOGI("audio_disabled");
+     }

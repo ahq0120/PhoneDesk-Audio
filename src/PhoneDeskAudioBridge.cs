@@ -4,10 +4,10 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 
-// Keep the upstream receiver binary unchanged. Adapt only the explicit audio-off
+// Adapt only the explicit audio-off
 // argument supplied by iMirror, preserving its video pipeline and stop events.
 public static class PhoneDeskAudioBridge {
- public const string AudioSink = "wasapisink exclusive=false low-latency=true";
+ public const string AudioSink = "wasapisink exclusive=false low-latency=false buffer-time=80000 latency-time=10000 slave-method=resample";
  public static string[] Transform(string[] args) {
   var result = (string[])args.Clone();
   for(int i=0;i+1<result.Length;i++) {
@@ -32,7 +32,7 @@ public static class PhoneDeskAudioBridge {
     if(a[3]!=AudioSink || a[1].IndexOf("port=1234")<0 || a[5]!="fakesink")return 2;
     if(Transform(new[]{"-as","custom"})[1]!="custom")return 3;
     if(Quote("abc\\")!="\"abc\\\\\"")return 4;
-    Console.WriteLine("PASS: audio-off becomes shared low-latency WASAPI; video and explicit sinks unchanged; Windows argument quoting.");return 0;
+    Console.WriteLine("PASS: audio-off becomes shared buffered WASAPI; video and explicit sinks unchanged; Windows argument quoting.");return 0;
    }
    var dir=AppDomain.CurrentDomain.BaseDirectory;
    var exe=Path.Combine(dir,"UxPlay-original.exe");

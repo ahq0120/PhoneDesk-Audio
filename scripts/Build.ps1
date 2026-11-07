@@ -1,6 +1,9 @@
+#Requires -Version 7.0
+param([string]$SdkRoot)
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent
 & (Join-Path $PSScriptRoot 'Prepare-Runtime.ps1')
+& (Join-Path $PSScriptRoot 'Build-Native.ps1') -SdkRoot $SdkRoot
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
 if (-not (Test-Path -LiteralPath $compiler)) { throw '.NET Framework 4.x x64 C# compiler is required.' }
 $outRoot = Join-Path $repoRoot 'dist/PhoneDesk'

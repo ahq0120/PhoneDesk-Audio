@@ -1,0 +1,202 @@
+--- a/vendor/uxplay/renderers/audio_renderer.c
++++ b/vendor/uxplay/renderers/audio_renderer.c
+@@ -36,6 +36,11 @@
+ static gint pcm_overruns = 0;
+ static gint64 last_health = 0;
+ static void pcm_overrun(GstElement *queue, gpointer unused) { g_atomic_int_inc(&pcm_overruns); }
++static gint pcm_underruns=0;
++static guint64 diag_max_gap_us=0,diag_invalid_frames=0;
++static gint64 diag_last_input_us=0;
++static void pcm_underrun(GstElement *queue,gpointer unused){g_atomic_int_inc(&pcm_underruns);}
++
+ static GstClockTime gst_audio_pipeline_base_time = GST_CLOCK_TIME_NONE;
+ static logger_t *logger = NULL;
+ const char * format[NFORMATS];
+@@ -218,6 +223,7 @@
+         renderer_type[i]->volume = gst_bin_get_by_name (GST_BIN (renderer_type[i]->pipeline), "volume");
+         renderer_type[i]->pcm_queue = gst_bin_get_by_name(GST_BIN(renderer_type[i]->pipeline), "audio_pcm");
+         g_signal_connect(renderer_type[i]->pcm_queue, "overrun", G_CALLBACK(pcm_overrun), NULL);
++        g_signal_connect(renderer_type[i]->pcm_queue,"underrun",G_CALLBACK(pcm_underrun),NULL);
+         renderer_type[i]->output_sink=gst_bin_get_by_name(GST_BIN(renderer_type[i]->pipeline),"phonedesk_audio_sink");
+         switch (i) {
+         case 0:
+@@ -328,6 +334,12 @@
+ void audio_renderer_render_buffer(unsigned char* data, int *data_len, unsigned short *seqnum, uint64_t *ntp_time) {
+     g_mutex_lock(&audio_mutex);
+     if (!render_audio || !renderer || !data || !data_len || *data_len <= 0 || !ntp_time) goto done;
++    gint64 diag_input_now=g_get_monotonic_time();
++    if(diag_last_input_us && diag_input_now>diag_last_input_us){
++        guint64 gap=(guint64)(diag_input_now-diag_last_input_us);
++        if(gap>diag_max_gap_us)diag_max_gap_us=gap;
++    }
++    diag_last_input_us=diag_input_now;
+     GstClockTime pts = (GstClockTime)*ntp_time;
+     if (sync) {
+         if (pts < gst_audio_pipeline_base_time) goto done;
+@@ -340,7 +352,7 @@
+     case 4: valid = data[0]==0xff; break;
+     default: break;
+     }
+-    if (!valid) { next_discont=TRUE; goto done; }
++    if (!valid) { diag_invalid_frames++; next_discont=TRUE; goto done; }
+     GstBuffer *buffer = gst_buffer_new_allocate(NULL, *data_len, NULL);
+     if (!buffer) goto done;
+     if (sync) GST_BUFFER_PTS(buffer)=pts;
+@@ -359,6 +371,8 @@
+         if(renderer->pcm_queue)g_object_get(renderer->pcm_queue,"current-level-time",&queued,NULL);
+         guint64 input=0;g_object_get(renderer->appsrc,"current-level-time",&input,NULL);
+         fprintf(stderr,"PhoneDesk audio: codec=%u sync=%d input_ms=%llu input_dropped=%llu pcm_ms=%llu pcm_overruns=%d\n",renderer->ct,sync,(unsigned long long)(input/GST_MSECOND),(unsigned long long)dropped,(unsigned long long)(queued/GST_MSECOND),g_atomic_int_get(&pcm_overruns));
++        fprintf(stderr,"PhoneDesk audio: continuity codec=%u max_input_gap_ms=%llu invalid_frames=%llu pcm_underruns=%d\n",renderer->ct,(unsigned long long)(diag_max_gap_us/1000),(unsigned long long)diag_invalid_frames,g_atomic_int_get(&pcm_underruns));
++        diag_max_gap_us=0;
+         last_health=now;
+     }
+ done:
+--- a/vendor/uxplay/uxplay.cpp
++++ b/vendor/uxplay/uxplay.cpp
+@@ -2423,6 +2423,22 @@
+ }
+ 
+ extern "C" void audio_process (void *cls, raop_ntp_t *ntp, audio_decode_struct *data) {
++    /* Research telemetry: only relative clock values, never payload/content. */
++    static uint64_t diag_since=0;
++    static int64_t diag_min=INT64_MAX,diag_max=INT64_MIN,diag_total=0;
++    static unsigned diag_frames=0;
++    uint64_t diag_now=get_local_time();
++    if(data->ntp_time_local){
++        int64_t lead=(int64_t)data->ntp_time_local-(int64_t)diag_now;
++        if(lead<diag_min)diag_min=lead;if(lead>diag_max)diag_max=lead;
++        diag_total+=lead;diag_frames++;
++        if(!diag_since)diag_since=diag_now;
++        if(diag_now-diag_since>=1000000000ULL){
++            int64_t correction=remote_clock_offset?(int64_t)(data->ntp_time_remote+remote_clock_offset)-(int64_t)data->ntp_time_local:0;
++            fprintf(stderr,"PhoneDesk audio: timing codec=%u lead_min_ms=%lld lead_mean_ms=%lld lead_max_ms=%lld clock_delta_ms=%lld frames=%u\n",data->ct,(long long)(diag_min/1000000),(long long)(diag_total/(int64_t)diag_frames/1000000),(long long)(diag_max/1000000),(long long)(correction/1000000),diag_frames);
++            diag_since=diag_now;diag_min=INT64_MAX;diag_max=INT64_MIN;diag_total=0;diag_frames=0;
++        }
++    }
+     if (dump_audio) {
+         dump_audio_to_file(data->data, data->data_len, (data->data)[0] & 0xf0);
+     }
+@@ -2629,6 +2645,7 @@
+ }
+ 
+ extern "C" void audio_set_progress(void *cls, uint32_t *start, uint32_t *curr, uint32_t *end) {
++    fprintf(stderr,"PhoneDesk audio: progress finite_duration=%d position_valid=%d\n",*end>*start,*curr>=*start&&*curr<=*end);
+     rtptime_start = *start;
+     rtptime = *curr;
+     rtptime_end = *end;
+@@ -2636,6 +2653,7 @@
+ }
+ 
+ extern "C" void audio_set_metadata(void *cls, const void *buffer, int buflen) {
++    fprintf(stderr,"PhoneDesk audio: metadata_event=%d\n",buffer!=NULL&&buflen>0);
+     char dmap_tag[5] = {0x0};
+     const unsigned char *metadata = (const  unsigned char *) buffer;
+     int datalen;
+--- a/vendor/uxplay/lib/raop_handlers.h
++++ b/vendor/uxplay/lib/raop_handlers.h
+@@ -33,6 +33,34 @@
+                                http_response_t *, char **, int *);
+ 
+ 
++/* Diagnostic profiles are opt-in. Never log arbitrary sender strings. */
++static unsigned phonedesk_latency_us(unsigned fallback) {
++    const char *v=getenv("PHONEDESK_RESEARCH_LATENCY_MS");
++    if(!v)return fallback;
++    if(!strcmp(v,"0"))return 0;
++    if(!strcmp(v,"80"))return 80000;
++    if(!strcmp(v,"250"))return 250000;
++    return fallback;
++}
++static plist_t phonedesk_output_latency(void) {
++    if(getenv("PHONEDESK_RESEARCH_LATENCY_MS"))
++        return plist_new_uint(phonedesk_latency_us(0));
++    return plist_new_bool(0); /* unchanged baseline */
++}
++static void phonedesk_mode(plist_t dict,const char *scope) {
++    plist_t node=plist_dict_get_item(dict,"audioMode");
++    char *value=NULL;
++    if(node && plist_get_node_type(node)==PLIST_STRING)plist_get_string_val(node,&value);
++    const char *mode="other";
++    if(!value)mode="absent";
++    else if(!strcmp(value,"default"))mode="default";
++    else if(!strcmp(value,"moviePlayback"))mode="moviePlayback";
++    else if(!strcmp(value,"media"))mode="media";
++    else if(!strcmp(value,"videoChat"))mode="videoChat";
++    fprintf(stderr,"PhoneDesk audio: audio_mode scope=%s value=%s present=%d\n",scope,mode,node!=NULL);
++    if(value)plist_mem_free(value);
++}
++
+ static void
+ raop_handler_info(raop_conn_t *conn,
+                   http_request_t *request, http_response_t *response,
+@@ -170,7 +198,7 @@
+       
+     plist_t audio_latencies_node = plist_new_array();
+     plist_t audio_latencies_0_node = plist_new_dict();
+-    plist_t audio_latencies_0_output_latency_micros_node = plist_new_bool(0);
++    plist_t audio_latencies_0_output_latency_micros_node = phonedesk_output_latency();
+     plist_t audio_latencies_0_type_node = plist_new_uint(100);
+     plist_t audio_latencies_0_audio_type_node = plist_new_string("default");
+     plist_t audio_latencies_0_input_latency_micros_node = plist_new_uint(0);
+@@ -181,7 +209,7 @@
+     plist_array_append_item(audio_latencies_node, audio_latencies_0_node);
+ 
+     plist_t audio_latencies_1_node = plist_new_dict();
+-    plist_t audio_latencies_1_output_latency_micros_node = plist_new_bool(0);
++    plist_t audio_latencies_1_output_latency_micros_node = phonedesk_output_latency();
+     plist_t audio_latencies_1_type_node = plist_new_uint(101);
+     plist_t audio_latencies_1_audio_type_node = plist_new_string("default");
+     plist_t audio_latencies_1_input_latency_micros_node = plist_new_uint(0);
+@@ -974,6 +1002,7 @@
+                 break;
+                 }
+             case 96: {
++                phonedesk_mode(req_stream_node,"setup_stream");
+                 // Audio
+                 unsigned short cport = raop->control_lport, dport = raop->data_lport; 
+                 unsigned short remote_cport = 0;
+@@ -1020,6 +1049,7 @@
+                         usingScreen = false;
+                     }
+ 
++                    fprintf(stderr,"PhoneDesk audio: setup codec=%u is_media=%d media_flag_present=%d screen=%d spf=%u\n",ct,isMedia,req_stream_is_media_node!=NULL,usingScreen,spf);
+                     raop->callbacks.audio_get_format(raop->callbacks.cls, &ct, &spf, &usingScreen, &isMedia, &audioFormat);
+                 }
+ 
+@@ -1183,6 +1213,7 @@
+     data = http_request_get_data(request, &data_len);
+     plist_t req_root_node = NULL;
+     plist_from_bin(data, data_len, &req_root_node);
++    phonedesk_mode(req_root_node,"set_audiomode");
+     plist_t req_audiomode_node = plist_dict_get_item(req_root_node, "audioMode");
+     plist_get_string_val(req_audiomode_node, &audiomode);
+     if (audiomode) {
+@@ -1212,9 +1243,10 @@
+ {
+     raop_t *raop = conn->raop;
+     char audio_latency[12] = { '\0' };
+-    unsigned int ad = (unsigned int) (((uint64_t) raop->audio_delay_micros) * AUDIO_SAMPLE_RATE / SECOND_IN_USECS);
++    unsigned int ad = (unsigned int) (((uint64_t) phonedesk_latency_us(raop->audio_delay_micros)) * AUDIO_SAMPLE_RATE / SECOND_IN_USECS);
+     snprintf(audio_latency, sizeof(audio_latency), "%u", ad);
+     logger_log(raop->logger, LOGGER_DEBUG, "raop_handler_record");
++    fprintf(stderr,"PhoneDesk audio: advertised_latency record_us=%u info_integer=%d\n",phonedesk_latency_us(raop->audio_delay_micros),getenv("PHONEDESK_RESEARCH_LATENCY_MS")!=NULL);
+     http_response_add_header(response, "Audio-Latency", audio_latency);
+     http_response_add_header(response, "Audio-Jack-Status", "connected; type=analog");
+ }
+--- a/vendor/uxplay/lib/raop_rtp.c
++++ b/vendor/uxplay/lib/raop_rtp.c
+@@ -528,6 +528,14 @@
+                    client_ntp_sync_prev = raop_rtp->client_ntp_sync;
+                    rtp_sync_prev = raop_rtp->rtp_sync;
+                 }
++                static uint64_t diag_last_sync=0;
++                uint64_t diag_sync_now=raop_ntp_get_local_time();
++                if(diag_sync_now-diag_last_sync>=3000000000ULL){
++                    uint32_t diag_playing=byteutils_get_int_be(packet,4),diag_next=byteutils_get_int_be(packet,16);
++                    uint32_t diag_latency=diag_next-diag_playing;
++                    fprintf(stderr,"PhoneDesk audio: transport_sync codec=%u requested_delay_ms=%u\n",raop_rtp->ct,(unsigned)(diag_latency*raop_rtp->rtp_clock_rate/1000000.0));
++                    diag_last_sync=diag_sync_now;
++                }
+                 raop_rtp->rtp_sync = byteutils_get_int_be(packet, 4);
+                 uint64_t sync_ntp_raw = byteutils_get_long_be(packet, 8);
+                 raop_rtp->client_ntp_sync = raop_remote_timestamp_to_nano_seconds(raop_rtp->ntp, sync_ntp_raw);

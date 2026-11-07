@@ -11,3 +11,8 @@ dist/
 .env.*
 settings.json
 validation.txt
+logs/
+*.log
+*-results.json
+*-observation.json
+sync-validation.txt

@@ -1,48 +1,55 @@
 # PhoneDesk Audio
 
-Windows 上的 iPhone 音訊接收工具；平常只聽手機聲音，需要時才開啟畫面投影。
+在 Windows 耳機同時聽 iPhone 與電腦的聲音。建議透過螢幕鏡像的音訊路徑連線，電腦平常不顯示手機畫面，需要時才開啟獨立投影視窗。
 
-![PhoneDesk Audio](docs/screenshot.png)
+## 建議使用方式
+
+1. 手機與電腦連到相同區域網路，開啟 `PhoneDesk.exe`。
+2. 手機控制中心 → **螢幕鏡像輸出**（兩個重疊矩形）→ **PhoneDesk Audio**。
+3. 保持「動畫／影片同步」未勾選。聲音輸出到 Windows 預設耳機／喇叭，與電腦聲音混合。
+4. 要看畫面時按「開啟手機畫面」，在 iMirror 按 Connect，再選 PhoneDesk Screen。
+5. 關閉投影後，從手機「螢幕鏡像輸出」重新選 PhoneDesk Audio。
+
+接收器使用 `-vs 0`：不顯示畫面，但手機仍處於鏡像狀態，接收器要求約 1fps，仍會傳送畫面資料；實際頻率由手機決定。
+
+也支援從播放控制的 AirPlay 音訊清單連線。這是另一條音訊路徑；本次妮姬實測中，一般操作較適合關閉同步，動畫則需要勾選「動畫／影片同步」。勾選可在同一次連線生效，但操作音效可能延後。
 
 ## 功能
 
-- 開啟程式後自動啟動音訊接收器，使用 Windows 預設播放裝置的共享模式。
-- 手機聲音與電腦聲音可以一起由電腦耳機播放。
-- 手機畫面預設關閉；按按鈕才開啟獨立 iMirror 投影視窗。
-- 每次啟動都從關閉畫面的狀態開始。
-- 不含手機操作、鍵鼠、文字輸入、WDA 或 ESP32 控制功能。
-- 原生 Windows Forms 介面，不需要 Node.js 或 Electron。
+- 原生 Windows Forms，無須 Electron、Node.js、ESP32、手機 USB 線或自製手機 App。
+- WASAPI 共享輸出，使用 Windows 預設音訊裝置。
+- 畫面預設不顯示，獨立 iMirror 投影視窗需要時再開。
+- LAN 介面選擇避開常見 VPN／虛擬介面，接收器驗證指定 IP 確實屬於本機。
+- 有上限的音訊佇列、實際清空緩衝的 FLUSH、同連線手動同步切換。
+- 不含鍵鼠、手機控制或文字輸入。
 
-## 使用
-
-1. 手機與電腦連到相同區域網路，開啟 `PhoneDesk.exe`。
-2. 在手機控制中心的播放控制中點 AirPlay 音訊圖示，選 **PhoneDesk Audio**。
-3. 播放音樂或影片；聲音會由 Windows 預設耳機／喇叭輸出。
-4. 要看畫面時，按 **開啟手機畫面**，在 iMirror 按 Connect，再從手機「螢幕鏡像輸出」選 **PhoneDesk Screen**。
-5. 關閉畫面後，若要繼續純音訊，從手機 AirPlay 選回 **PhoneDesk Audio**。
-
-接收器「已啟動」只代表程序正在執行，並不代表已收到手機串流。切換音訊與畫面接收器需要在手機重新選擇。關閉程式會停止本程式啟動的接收器。iMirror 視窗需維持開啟才能投影。
+「接收器已啟動」只表示程序存在，不代表已收到手機音訊。切換路徑需要在手機重新選取。電話、鬧鐘、受保護內容及部分 App 不一定使用相同路由。
 
 ## 建置
 
-Windows x64、Windows PowerShell 5.1 或 PowerShell 7，以及 .NET Framework 4.x 編譯器（通常由 Windows 提供）。不需要額外 NuGet 套件。
+Windows x64、PowerShell 7、Git、.NET Framework 4.x 編譯器。Native helper 使用固定版本的 MSYS2 UCRT64 套件；首次下載及編譯需要時間與磁碟空間。
 
 ```powershell
-.\scripts\Build.ps1
+pwsh -File .\scripts\Build.ps1
 ```
 
-腳本下載固定版本的 iMirror 與兩個 GStreamer 音訊元件，逐一檢查 SHA-256，再編譯原生介面與音訊參數轉接器。成品在 `dist/PhoneDesk/`；保留 `PhoneDesk.exe` 與旁邊的 `resources` 資料夾。
+來源 commit 固定於 `native/upstream.json`；`native/phonedesk-stable.patch` 包含正式 native 修正，`native/msys-build-lock.json` 記錄編譯依賴。成品位於 `dist/PhoneDesk/`。保留 exe、resources、授權與配套原始碼。
+
+建議短的 ASCII 工作路徑及 ASCII `TEMP`／`TMP`，避免 MinGW 路徑限制。已備妥相同 UCRT64 SDK 時可指定：
 
 ```powershell
+pwsh -File .\scripts\Build.ps1 -SdkRoot C:\toolchains\ucrt64
 .\scripts\Test.ps1
-# 另外測試實際接收器啟動與選用投影（會短暫開啟 iMirror）
+# 啟動接收器與選用投影，避免與使用中的其他接收器衝突
 .\scripts\Test.ps1 -Integration
 ```
 
-整合測試前請先關閉其他 iMirror／PhoneDesk，避免接收器互相衝突。
+## 驗證範圍與限制
 
-## 驗證狀態與限制
+2026-11-07 的單一 iPhone／Windows／妮姬實測：鏡像路徑確認為 AAC-ELD，使用者回報動畫同步、返回操作後沒有明顯變慢；後續約 30 秒持續播放無可聞斷音。先前曾短暫斷音，尚不能宣稱中斷已完全解決，也不是跨裝置或長時間保證。
 
-本機已驗證：純音訊接收器啟動與停止、預設不開畫面、手動開關投影時音訊接收器仍執行、原生介面編譯。端到端手機音訊、延遲、受保護內容與不同 iOS／Windows 版本的相容性仍需實機驗證。電話、鬧鐘與部分 App 不一定使用 AirPlay 音訊路由。
+ALAC 路徑改變延遲回報型別及數值，未改善該動畫同步；audioMode 在該次場景切換也未提供可用訊號。詳見[研究摘要](docs/audio-routing-research.md)。協定時間差不是實測端到端延遲。
 
-本儲存庫不含第三方二進位檔、個人設定、憑證、手機資料或歷史控制版本。第三方來源、授權與下載雜湊見 [THIRD-PARTY.md](THIRD-PARTY.md) 與 [runtime.lock.json](runtime.lock.json)。目前未另行指定本專案原始碼授權；公開可見不等同於授權任意重用。
+`research/` 保留獨立診斷介面及額外 native patch，**預設建置不啟用**。不包含本機日誌、裝置識別、錄音、手機畫面、憑證或私人設定。
+
+來源與授權見 [THIRD-PARTY.md](THIRD-PARTY.md)。目前未另行指定 PhoneDesk 自有原始碼授權；公開可見不等同授權任意重用。
