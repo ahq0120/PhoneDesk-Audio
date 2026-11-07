@@ -1,4 +1,4 @@
-Switch 2 服務／A2DP ETW 追蹤 v1.0
+﻿Switch 2 服務／A2DP ETW 追蹤 v1.1
 
 1. 完整解壓縮。保留 PhoneDesk Bluetooth v0.4，停止手機音訊接收。
 2. 右鍵 Run-Trace.cmd → 以系統管理員身分執行。
@@ -17,3 +17,5 @@ WPP 記錄可能需要相符符號／TMF 解碼，無法保證這次一定能定
 
 來源：https://github.com/microsoft/busiotools/blob/master/bluetooth/tracing/BluetoothStack.wprp
 logman：https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/logman-create-trace
+
+1.1 修正 PowerShell 5.1 原生程序結束碼取得與中文解碼。若先前執行過 1.0，先以系統管理員執行新版 Stop-Trace.cmd，再執行 Run-Trace.cmd。

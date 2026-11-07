@@ -12,16 +12,25 @@ if($Mode -eq 'Stop'){
 $folder=Join-Path $PSScriptRoot ('reports/'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'-'+[guid]::NewGuid().ToString('N').Substring(0,6))
 New-Item -ItemType Directory -Path $folder -Force | Out-Null
 function Native([string[]]$Arguments,[switch]$AllowFailure){
- $index=[guid]::NewGuid().ToString('N')
- $stdout=Join-Path $folder ($index+'.out');$stderr=Join-Path $folder ($index+'.err')
- $quoted=@($Arguments | ForEach-Object {'"'+$_+'"'}) -join ' '
- $p=Start-Process -FilePath "$env:WINDIR/System32/logman.exe" -ArgumentList $quoted -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
- if(!$p.WaitForExit(20000)){$p.Kill();throw 'logman timed out after 20 seconds.'}
- $text=[IO.File]::ReadAllText($stdout)+[IO.File]::ReadAllText($stderr)
- Add-Content -LiteralPath (Join-Path $folder 'commands.txt') -Value (($Arguments -join ' ')+' => '+$p.ExitCode+"`r`n"+$text) -Encoding UTF8
- Remove-Item -LiteralPath $stdout,$stderr
- if($p.ExitCode -ne 0 -and !$AllowFailure){throw ('logman failed: '+$p.ExitCode+' '+$text)}
- return $p.ExitCode
+ $info=New-Object Diagnostics.ProcessStartInfo
+ $info.FileName="$env:WINDIR/System32/logman.exe"
+ $info.Arguments=(@($Arguments | ForEach-Object {'"'+$_+'"'}) -join ' ')
+ $info.UseShellExecute=$false;$info.CreateNoWindow=$true
+ $info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true
+ $encoding=[Text.Encoding]::GetEncoding([Globalization.CultureInfo]::CurrentCulture.TextInfo.OEMCodePage)
+ $info.StandardOutputEncoding=$encoding;$info.StandardErrorEncoding=$encoding
+ $p=New-Object Diagnostics.Process
+ $p.StartInfo=$info
+ try{
+  [void]$p.Start()
+  $stdout=$p.StandardOutput.ReadToEndAsync();$stderr=$p.StandardError.ReadToEndAsync()
+  if(!$p.WaitForExit(20000)){$p.Kill();$p.WaitForExit();throw 'logman timed out after 20 seconds.'}
+  $code=$p.ExitCode
+  $text=$stdout.GetAwaiter().GetResult()+$stderr.GetAwaiter().GetResult()
+  Add-Content -LiteralPath (Join-Path $folder 'commands.txt') -Value (($Arguments -join ' ')+' => '+$code+"`r`n"+$text) -Encoding UTF8
+  if($code -ne 0 -and !$AllowFailure){throw ('logman failed: '+$code+' '+$text)}
+  return [int]$code
+ }finally{$p.Dispose()}
 }
 $created=$false;$running=$false
 try{
