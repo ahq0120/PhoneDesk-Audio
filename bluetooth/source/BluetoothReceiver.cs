@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Drawing;
 using System.Diagnostics;
@@ -20,14 +20,14 @@ public sealed class BluetoothReceiver : Form {
  readonly Button refresh=new Button(), connect=new Button(), disconnect=new Button();
  AudioPlaybackConnection connection;
  CancellationTokenSource pending;
- bool closing,busy,radioAvailable;
+ bool closing,busy,radioAvailable,diagnosing;
  int generation;
  sealed class DeviceItem {
   public string Id,Name;
   public override string ToString(){return string.IsNullOrWhiteSpace(Name)?"未命名藍牙音訊來源":Name;}
  }
  public BluetoothReceiver(bool start) {
-  Text="PhoneDesk Bluetooth · 藍牙音訊接收";
+  Text="PhoneDesk Bluetooth 0.4 · 連線診斷";
   ClientSize=new Size(760,620);MinimumSize=Size;MaximumSize=Size;
   StartPosition=FormStartPosition.CenterScreen;AutoScaleMode=AutoScaleMode.Dpi;
   BackColor=Color.FromArgb(11,17,24);ForeColor=Color.White;
@@ -49,6 +49,8 @@ public sealed class BluetoothReceiver : Form {
   status.SetBounds(30,505,700,34);status.ForeColor=Color.FromArgb(113,229,194);status.Text="尚未開始搜尋";Controls.Add(status);
   detail.SetBounds(30,542,700,65);detail.ForeColor=Color.LightGray;
   detail.Text="使用 Windows 預設輸出裝置。程式需保持開啟；不錄音、不上傳資料。\n藍牙音訊有延遲，Switch 實際配對與相容性需在你的電腦確認。";Controls.Add(detail);
+  var diagnostic=AddButton("記錄連線診斷",390,210,165);
+  diagnostic.Click+=async(s,e)=>await CaptureDiagnostics();
   var logs=AddButton("開啟 Log 資料夾",510,450,220);
   logs.Click+=(s,e)=>{try{Directory.CreateDirectory(Path.GetDirectoryName(Log.FilePath));Process.Start(new ProcessStartInfo("explorer.exe", "\""+Path.GetDirectoryName(Log.FilePath)+"\""){UseShellExecute=true});}catch(Exception ex){Log.Error("open_logs",ex);status.Text="無法開啟 Log 資料夾，請確認資料夾權限。";}};
   healthTimer.Interval=30000;
@@ -78,7 +80,7 @@ public sealed class BluetoothReceiver : Form {
    var found=await DeviceInformation.FindAllAsync(AudioPlaybackConnection.GetDeviceSelector());
    if(closing||ticket!=generation)return;
    Log.Write("scan_completed","eligible_count="+found.Count);
-   if(found.Count==0)await Task.Run(()=>BluetoothDiagnostics.Run(Log));
+   await CaptureDiagnostics();
    if(closing||ticket!=generation)return;
    foreach(var d in found)devices.Items.Add(new DeviceItem{Id=d.Id,Name=d.Name});
    if(devices.Items.Count>0){devices.SelectedIndex=0;status.Text="找到音訊來源，選擇裝置後按開始接收。";}
@@ -89,7 +91,8 @@ public sealed class BluetoothReceiver : Form {
  async Task Connect(){
   var item=devices.SelectedItem as DeviceItem;
   if(item==null||busy||connection!=null||closing)return;
-  Log.Write("connect_requested","selection_index="+devices.SelectedIndex);
+  Log.Write("connect_requested","selection_index="+devices.SelectedIndex+" switch_name_match="+IsSwitch(item.Name));
+  var elapsed=Stopwatch.StartNew();
   int ticket=++generation;busy=true;
   var cancel=new CancellationTokenSource(TimeSpan.FromSeconds(25));pending=cancel;
   AudioPlaybackConnection child=null;
@@ -100,12 +103,12 @@ public sealed class BluetoothReceiver : Form {
    connection=child;
    child.StateChanged+=(s,e)=>UI(()=>{if(connection==s){Log.Write("channel_state","state="+s.State);status.Text=s.State==AudioPlaybackConnectionState.Opened?"通道已開啟，請在 Switch／手機播放聲音。":"通道未開啟；若無法恢復，請停止後重新接收。";}});
    await child.StartAsync().AsTask(cancel.Token);
-   Log.Write("receiver_enabled");
+   Log.Write("receiver_enabled","elapsed_ms="+elapsed.ElapsedMilliseconds);
    if(closing||ticket!=generation)return;
    status.Text="等待來源開啟音訊；必要時從 Switch 選擇電腦連線…";
    var result=await child.OpenAsync().AsTask(cancel.Token);
    if(closing||ticket!=generation)return;
-   Log.Write("open_result","status="+result.Status);
+   Log.Write("open_result","status="+result.Status+" elapsed_ms="+elapsed.ElapsedMilliseconds+" extended_hresult=0x"+(result.ExtendedError==null?0:result.ExtendedError.HResult).ToString("X8"));
    if(result.Status!=AudioPlaybackConnectionOpenResultStatus.Success)throw new InvalidOperationException("連線未成功（"+result.Status+"）。請在來源端連線後重試。");
    status.Text="通道已開啟，請播放聲音並調整 Windows 音量。";
   }catch(OperationCanceledException){Log.Write("connect_cancelled","timeout_or_stop=1");if(!closing&&ticket==generation){Release(child);status.Text="等待逾時。請確認來源已連線，再重新接收。";}}
@@ -115,6 +118,26 @@ public sealed class BluetoothReceiver : Form {
    if(pending==cancel)pending=null;cancel.Dispose();
    if(!closing&&ticket==generation){busy=false;UpdateButtons();}
   }
+ }
+ static bool IsSwitch(string name){return (name??"").IndexOf("Nintendo Switch",StringComparison.OrdinalIgnoreCase)>=0;}
+ async Task CaptureDiagnostics(){
+  if(diagnosing||closing)return;
+  diagnosing=true;var watch=Stopwatch.StartNew();
+  Log.Write("snapshot_started","channel="+(connection==null?"none":connection.State.ToString()));
+  try{
+   await Task.Run(()=>BluetoothDiagnostics.Run(Log));
+   // Include disabled interfaces without broadening the list used for actual connections.
+   string selector="System.Devices.InterfaceClassGuid:=\"{6994AD04-93EF-11D0-A3CC-00A0C9223196}\" AND System.DeviceInterface.Bluetooth.ServiceGuid:=\"{0000110A-0000-1000-8000-00805F9B34FB}\"";
+   var interfaces=await DeviceInformation.FindAllAsync(selector,null,DeviceInformationKind.DeviceInterface);
+   Log.Write("audio_interfaces","count="+interfaces.Count);
+   int index=0;
+   foreach(var item in interfaces){
+    Log.Write("audio_interface","index="+(index++)+" enabled="+item.IsEnabled+" switch_name_match="+IsSwitch(item.Name));
+   }
+   Log.Write("snapshot_completed","elapsed_ms="+watch.ElapsedMilliseconds);
+   if(!closing)detail.Text="診斷已寫入 logs/current.log。先測手機，再測 Switch 2，完成後傳回此檔。\n只記錄狀態與數字，不記錄裝置名稱、位址或聲音。";
+  }catch(Exception ex){Log.Error("snapshot",ex);if(!closing)detail.Text="診斷部分失敗，已將錯誤寫入 logs/current.log。";}
+  finally{diagnosing=false;}
  }
  static string Friendly(Exception e){return e is UnauthorizedAccessException?"存取遭拒，請檢查 Windows 藍牙權限與配對。":e.Message;}
  void Release(AudioPlaybackConnection child){if(connection==child)connection=null;if(child!=null)try{child.Dispose();}catch(Exception e){Log.Error("dispose_channel",e);}}
@@ -126,7 +149,7 @@ public sealed class BluetoothReceiver : Form {
    if(args.Length>0&&args[0]=="--log-test"){
     DailyLog.SelfTest(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,".log-tests",Guid.NewGuid().ToString("N")));return 0;
    }
-   Log.Write("app_started","version=0.3 os="+Environment.OSVersion.Version+" runtime="+Environment.Version+" x64="+Environment.Is64BitProcess);
+   Log.Write("app_started","version=0.4 os="+Environment.OSVersion.Version+" runtime="+Environment.Version+" x64="+Environment.Is64BitProcess);
    Application.ThreadException+=(s,e)=>{Log.Error("ui_unhandled",e.Exception);MessageBox.Show("程式發生錯誤，請查看 logs/current.log。","PhoneDesk Bluetooth");};
    AppDomain.CurrentDomain.UnhandledException+=(s,e)=>{var ex=e.ExceptionObject as Exception;if(ex!=null)Log.Error("unhandled",ex);};
    if(args.Length>0&&args[0]=="--smoke-test"){
@@ -149,7 +172,7 @@ public sealed class BluetoothReceiver : Form {
   string selector=AudioPlaybackConnection.GetDeviceSelector();if(string.IsNullOrEmpty(selector))return 3;
   var adapter=await BluetoothAdapter.GetDefaultAsync();
   var found=await DeviceInformation.FindAllAsync(selector);
-  using(var f=new BluetoothReceiver(false)){f.Stop("測試完成");}
+  using(var f=new BluetoothReceiver(false)){SynchronizationContext.SetSynchronizationContext(null);await f.CaptureDiagnostics();f.Stop("測試完成");}
   File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"self-test.txt"),"API: available\r\nBluetooth adapter: "+(adapter==null?"not detected":"detected")+"\r\nEligible paired audio sources: "+found.Count+"\r\nNo live audio or Switch connection tested.\r\n");return 0;
  }
 }
