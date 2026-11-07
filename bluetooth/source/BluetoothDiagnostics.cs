@@ -53,4 +53,17 @@ public static class BluetoothDiagnostics {
   var flags=Flags(new[]{new Guid("0000110a-0000-1000-8000-00805f9b34fb")},1);
   if(!flags.Contains("enabled_audio_source=True")||!flags.Contains("enabled_audio_sink=False"))throw new Exception("Service classification failed");
  }
+ public static ulong[] SwitchAddresses(){
+  var result=new System.Collections.Generic.List<ulong>();
+  var search=new Search{size=(uint)Marshal.SizeOf(typeof(Search)),authenticated=1,remembered=1};
+  var device=new Device{size=(uint)Marshal.SizeOf(typeof(Device))};
+  IntPtr handle=BluetoothFindFirstDevice(ref search,ref device);
+  if(handle==IntPtr.Zero)return result.ToArray();
+  try{int seen=0;do{
+   if((device.name??"").IndexOf("Nintendo Switch",StringComparison.OrdinalIgnoreCase)>=0&&!result.Contains(device.address))result.Add(device.address);
+   device.size=(uint)Marshal.SizeOf(typeof(Device));
+  }while(++seen<256&&BluetoothFindNextDevice(handle,ref device));
+  }finally{BluetoothFindDeviceClose(handle);}
+  return result.ToArray();
+ }
 }
