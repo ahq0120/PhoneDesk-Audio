@@ -1,6 +1,6 @@
 # PhoneDesk Audio
 
-**Switch 2 連線事件收集：** [下載腳本 v1.0](https://github.com/ahq0120/PhoneDesk-Audio/raw/refs/heads/switch2/downloads/Switch2-Connection-Logs-v1.0.zip)，解壓後雙擊 `Run-Connection.cmd`，依提示重現連線失敗。收集裝置前後狀態、PnP／藍牙事件及 SetupAPI 尾端；[使用說明與隱私範圍](bluetooth/connection/README.txt)。
+**Switch 2 連線事件收集：** [下載腳本 v1.1](https://github.com/ahq0120/PhoneDesk-Audio/raw/refs/heads/switch2/downloads/Switch2-Connection-Logs-v1.1.zip)，解壓後雙擊 `Run-Connection.cmd`，依提示重現連線失敗。收集裝置前後狀態、PnP／藍牙事件及 SetupAPI 尾端；[使用說明與隱私範圍](bluetooth/connection/README.txt)。
 
 **安全性通知（2026-11-08）：Switch2 Service Probe v1.2 暫停下載與執行。** 收到 Microsoft Defender `Trojan:Win32/Wacatac.B!ml` 偵測回報，受影響項目為封裝內的 `SwitchServiceProbe.exe`。尚未證實誤報；不要停用防毒、加入排除或還原執行。該版 ZIP 已自分支最新版本撤下，原始碼保留供檢查。[檢查狀態](docs/switch2-v12-security-review.md)。
 
