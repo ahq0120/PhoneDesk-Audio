@@ -16,3 +16,8 @@ logs/
 *-results.json
 *-observation.json
 sync-validation.txt
+.build/
+.log-tests/
+self-test.txt
+smoke-test.txt
+preview.png

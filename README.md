@@ -1,5 +1,7 @@
 # PhoneDesk Audio
 
+> **switch2 分支**：新增獨立的 [PhoneDesk Bluetooth 接收工具](bluetooth/README.txt)，原始碼在 `bluetooth/`。執行 `bluetooth/Build.ps1` 建置；可在程式內開啟每天覆蓋的 `logs/current.log`。Switch 2 實際藍牙配對與聲音仍需在目標電腦驗證。本分支保留原有 iPhone AirPlay 工具。
+
 在 Windows 耳機同時聽 iPhone 與電腦的聲音。建議透過螢幕鏡像的音訊路徑連線，電腦平常不顯示手機畫面，需要時才開啟獨立投影視窗。
 
 ## 建議使用方式
