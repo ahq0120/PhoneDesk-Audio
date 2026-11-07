@@ -1,5 +1,7 @@
 # PhoneDesk Audio
 
+**電腦與藍牙介面資料：** [下載唯讀腳本 v1.0](https://github.com/ahq0120/PhoneDesk-Audio/raw/refs/heads/switch2/downloads/PhoneDesk-Hardware-Info-v1.0.zip)，解壓雙擊 `Run-Hardware.cmd`，無需 Python／管理員權限。[收集欄位與辨識限制](bluetooth/hardware-info/README.txt)。
+
 **程序故障復原測試：** [下載 Windows x64 工具 v1.0](https://github.com/ahq0120/PhoneDesk-Audio/raw/refs/heads/switch2/downloads/PhoneDesk-Recovery-Test-v1.0.zip)，解壓執行 `PhoneDeskRecoveryTest.exe`，測試閃退與無回應。[範圍與限制](bluetooth/recovery-test/README.txt)：不動鍵鼠與藍牙；通過僅表示程序看門狗有效，不代表 USB／驅動／配對可復原。
 
 **Switch 2 協定封包追蹤：** [下載 HCI／L2CAP 收集腳本 v1.1](https://github.com/ahq0120/PhoneDesk-Audio/raw/refs/heads/switch2/downloads/Switch2-Packet-Capture-v1.1.zip)。右鍵 `Run-Packets.cmd` 以系統管理員執行，綠字出現後重現連線失敗，60 秒自動停止。[範圍、隱私與實測限制](bluetooth/packet/README.txt)。無需另裝 Wireshark／BTP；原始記錄不可公開上傳。
