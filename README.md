@@ -1,5 +1,7 @@
 # PhoneDesk Audio
 
+**藍牙／Windows 音訊診斷工具：** [下載完整檢查腳本](https://github.com/ahq0120/PhoneDesk-Audio/raw/refs/heads/switch2/downloads/PhoneDesk-Audio-Diagnostics-v1.0.zip)，解壓後雙擊 `Run-Diagnostics.cmd`。[檢查範圍與使用方式](bluetooth/diagnostics/README.txt)。不修改設定、不錄音、不上傳；完成後自行分享產生的報告 ZIP。
+
 **Switch 2 藍牙接收工具下載：** [PhoneDesk Bluetooth v0.3 完整包](https://github.com/ahq0120/PhoneDesk-Audio/raw/refs/heads/switch2/downloads/PhoneDesk-Bluetooth-v0.3.zip)。完整解壓縮後執行 `PhoneDeskBluetooth.exe`；[使用說明](bluetooth/README.txt)。Switch 2 實際配對與收音仍待目標電腦驗證。
 
 
