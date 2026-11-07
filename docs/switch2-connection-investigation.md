@@ -52,6 +52,7 @@ BlueZ issue #2625 的作者回報 Linux 可透過限制 `a2dp_sink` 與 `sbc` �
 - 重新配對追蹤確認 Windows 主動建立基礎連線、完成配對並查詢 SDP；不能把 Windows 顯示已連線等同音訊已連線。該次第二段音訊要求在追蹤結束前只有 pending，不能推定後續一定失敗。
 - Windows 查詢完整 0x0000–0xffff 屬性範圍，Switch 2 回覆三筆服務記錄，包含 Audio Source 110A，均未包含 ServiceRecordHandle 0x0000。回覆完整且無 continuation state，不是解碼器只取到部分資料。
 - 藍牙 SDP 規格要求每筆記錄包含 0x0000 與 0x0001。缺少 0x0000 是已觀測異常，但「因此被 Windows 忽略」仍是待驗證的因果假設。
+- 開發機 Windows 公開 BluetoothSdpEnumAttributes API 對缺少 handle 的數值記錄及補入 handle 的版本均回成功；不能把 BthEnum／profile 列舉問題直接描述為公開 SDP parser 必然拒絕。詳見[原生路線調查與供應商問題摘要](switch2-native-support-report.md)。
 - Microsoft 的 WSASetService 與 SDP SUBMIT_RECORD 是發布本機服務，不是覆寫遠端 Switch 的服務資料；BluetoothSetLocalServiceInfo 也是本機 profile driver 的安裝介面。未找到受支援的應用程式 API 可補寫遠端記錄並強迫 BthEnum 建立其音訊子裝置。
 
 沒有把編輯登錄快取、偽造本機 SDP 或強制綁定驅動當作已驗證的修復，也沒有在目標電腦套用這些操作。
