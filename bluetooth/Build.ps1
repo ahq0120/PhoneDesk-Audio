@@ -15,6 +15,7 @@ foreach($dll in @('System.Runtime.dll','System.Runtime.WindowsRuntime.dll','Syst
 foreach($file in Get-ChildItem -LiteralPath $metadata -Filter '*.winmd'){$argsList+=('/r:'+$file.FullName)}
 $argsList+=(Join-Path $PSScriptRoot 'source/BluetoothReceiver.cs')
 $argsList+=(Join-Path $PSScriptRoot 'source/DailyLog.cs')
+$argsList+=(Join-Path $PSScriptRoot 'source/BluetoothDiagnostics.cs')
 $argsList+=('/win32manifest:'+(Join-Path $PSScriptRoot 'source/app.manifest'))
 & (Join-Path $framework 'csc.exe') @argsList
 if($LASTEXITCODE){throw 'Build failed.'}

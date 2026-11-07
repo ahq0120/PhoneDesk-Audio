@@ -1,4 +1,4 @@
-PhoneDesk Bluetooth v0.2／switch2 分支（Windows x64）
+﻿PhoneDesk Bluetooth v0.3／switch2 分支（Windows x64）
 
 用途
 將已配對的 Switch 或其他藍牙音訊來源送到電腦的預設耳機／喇叭，與電腦聲音混合。
@@ -60,3 +60,7 @@ switch2 是開發分支名稱，Switch 2 藍牙收音仍需實機與驅動相容
 參考
 Microsoft：https://learn.microsoft.com/en-us/windows/apps/develop/media-playback/enable-remote-audio-playback
 Nintendo：https://www.nintendo.com/my/support/switch/accessories/bluetooth_audio.html
+
+新增服務診斷
+來源為零時，唯讀列舉 Windows 已快取／記住的藍牙裝置與啟用服務。記錄匿名索引、已配對／連線旗標、裝置分類，以及標準 Audio Source／Audio Sink／HID 服務旗標。僅記錄裝置名稱是否符合 Nintendo Switch 的布林值，不保存名稱或位址。
+這不是完整即時 SDP 探測；未列出啟用服務不代表硬體完全不支援該服務。

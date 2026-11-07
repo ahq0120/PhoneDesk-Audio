@@ -78,6 +78,8 @@ public sealed class BluetoothReceiver : Form {
    var found=await DeviceInformation.FindAllAsync(AudioPlaybackConnection.GetDeviceSelector());
    if(closing||ticket!=generation)return;
    Log.Write("scan_completed","eligible_count="+found.Count);
+   if(found.Count==0)await Task.Run(()=>BluetoothDiagnostics.Run(Log));
+   if(closing||ticket!=generation)return;
    foreach(var d in found)devices.Items.Add(new DeviceItem{Id=d.Id,Name=d.Name});
    if(devices.Items.Count>0){devices.SelectedIndex=0;status.Text="找到音訊來源，選擇裝置後按開始接收。";}
    else status.Text="沒有可接收來源。先完成配對，再按重新搜尋。";
@@ -120,10 +122,11 @@ public sealed class BluetoothReceiver : Form {
  [STAThread] public static int Main(string[] args){
   Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
   try{
+   if(args.Length>0&&args[0]=="--diagnostics-test"){BluetoothDiagnostics.SelfTest();BluetoothDiagnostics.Run(Log);return 0;}
    if(args.Length>0&&args[0]=="--log-test"){
     DailyLog.SelfTest(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,".log-tests",Guid.NewGuid().ToString("N")));return 0;
    }
-   Log.Write("app_started","version=0.2 os="+Environment.OSVersion.Version+" runtime="+Environment.Version+" x64="+Environment.Is64BitProcess);
+   Log.Write("app_started","version=0.3 os="+Environment.OSVersion.Version+" runtime="+Environment.Version+" x64="+Environment.Is64BitProcess);
    Application.ThreadException+=(s,e)=>{Log.Error("ui_unhandled",e.Exception);MessageBox.Show("程式發生錯誤，請查看 logs/current.log。","PhoneDesk Bluetooth");};
    AppDomain.CurrentDomain.UnhandledException+=(s,e)=>{var ex=e.ExceptionObject as Exception;if(ex!=null)Log.Error("unhandled",ex);};
    if(args.Length>0&&args[0]=="--smoke-test"){

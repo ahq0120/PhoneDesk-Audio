@@ -1,6 +1,6 @@
 # PhoneDesk Audio
 
-**Switch 2 藍牙接收工具下載：** [PhoneDesk Bluetooth v0.2 完整包](https://github.com/ahq0120/PhoneDesk-Audio/raw/refs/heads/switch2/downloads/PhoneDesk-Bluetooth-v0.2.zip)。完整解壓縮後執行 `PhoneDeskBluetooth.exe`；[使用說明](bluetooth/README.txt)。Switch 2 實際配對與收音仍待目標電腦驗證。
+**Switch 2 藍牙接收工具下載：** [PhoneDesk Bluetooth v0.3 完整包](https://github.com/ahq0120/PhoneDesk-Audio/raw/refs/heads/switch2/downloads/PhoneDesk-Bluetooth-v0.3.zip)。完整解壓縮後執行 `PhoneDeskBluetooth.exe`；[使用說明](bluetooth/README.txt)。Switch 2 實際配對與收音仍待目標電腦驗證。
 
 
 > **switch2 分支**：新增獨立的 [PhoneDesk Bluetooth 接收工具](bluetooth/README.txt)，原始碼在 `bluetooth/`。執行 `bluetooth/Build.ps1` 建置；可在程式內開啟每天覆蓋的 `logs/current.log`。Switch 2 實際藍牙配對與聲音仍需在目標電腦驗證。本分支保留原有 iPhone AirPlay 工具。
